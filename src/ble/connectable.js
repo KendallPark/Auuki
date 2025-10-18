@@ -282,34 +282,27 @@ function Connectable(args = {}) {
     //   recover devices that have droped.
     //
     async function connect(args = {}) {
-        // If already connecting, cancel the current connection attempt
-        if(equals(getStatus(), Status.connecting)) {
-            print.log(`ble: cancelling current connection attempt...`);
-            if (abortController) {
-                abortController.abort();
-            }
-            _status = Status.disconnected;
-            _connected = false;
-
-            // Call the appropriate callback to update UI
-            onConnectFail(new Error('Connection cancelled by user'));
-            return;
-        }
-
-        if(equals(getStatus(), Status.connected)) return;
+        if(equals(getStatus(), Status.connecting) ||
+           equals(getStatus(), Status.connected)) return;
 
         const requesting = args.requesting ?? false;
         const watching = args.watching ?? false;
 
         // guard
+        // stop execution on missuse and notify the developer
         if((!requesting && !watching) && !exists(_device)) {
+            // can't be watching or requesting if device is not passed as config
             console.error(`ble: connectable: 'watching false and requesting false requires a gatt device to be passed as config to Connectable!'`);
+
             print.makeCoffee();
-            return;
+
         }
         if(requesting && watching) {
+            // can't be watching and requesting at the same time
             console.error(`ble: connectable: 'can't be requesting and watching for a devices at the same time pick one!'`);
+
             print.callKarenFromHR();
+
             return;
         }
         // end guard
@@ -320,53 +313,16 @@ function Connectable(args = {}) {
         _status = Status.connecting;
         onConnecting();
 
-        const isAndroid = /Android/i.test(navigator.userAgent);
-
         try {
             if(watching) {
-                print.log(`ble: attempting watch for device: ${_device?.id}`);
                 _device = await watch(_device.id);
-                print.log(`ble: watch successful for: ${_device?.name}`);
             }
             if(requesting) {
-                print.log(`ble: requesting device...`);
                 _device = await request();
-                print.log(`ble: device selected: ${_device?.name}`);
             }
-
-            // A small delay before connecting can sometimes help.
-            if (isAndroid) {
-                print.log(`ble: android: adding pre-connection delay...`);
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-
-            print.log(`ble: attempting GATT connection to: ${getName()}`);
-            _server = await _device.gatt.connect();
+            _server              = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
-
-            // KEY CHANGE 1: Introduce a single, longer delay after connecting.
-            // This is the most critical fix for Android service discovery issues.
-            if (isAndroid) {
-                print.log(`ble: android: adding service discovery delay...`);
-                await new Promise(resolve => setTimeout(resolve, 3000));
-            }
-
-            // KEY CHANGE 2: Simplify service discovery.
-            // We removed the complex targeted/fallback logic and use one robust method.
-            const serviceDiscoveryTimeout = 30000; // 30 seconds
-            print.log(`ble: gatt: discovering services (timeout: ${serviceDiscoveryTimeout}ms)...`);
-            
-            _primaryServicesList = await Promise.race([
-                _server.getPrimaryServices(),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
-                )
-            ]);
-
-            if (!_primaryServicesList || _primaryServicesList.length === 0) {
-                throw new Error('No primary services found on device.');
-            }
-
+            _primaryServicesList = await _server.getPrimaryServices();
             _primaryServices     = gattListToObject(_primaryServicesList);
             _connected           = true;
             _autoReconnect       = true;
@@ -377,49 +333,15 @@ function Connectable(args = {}) {
             print.log(`ble: gatt: services: of: ${getName()}`);
             printServices();
 
-            await setup();
+            let resSetup = await setup();
 
+            // calling the connected callback last, because only at that point
+            // the device is usable.
             onConnected();
 
         } catch(e) {
             _connected = false;
             _status = Status.disconnected;
-
-            print.log(`ble: connection error: ${e.name}: ${e.message}`);
-            if (e.code) print.log(`ble: error code: ${e.code}`);
-
-            // KEY CHANGE 3: Ensure a clean disconnect before retrying.
-            // This prevents the device from getting stuck in a partially connected state.
-            if (_device?.gatt?.connected) {
-                print.log(`ble: cleaning up GATT connection before retry...`);
-                _device.gatt.disconnect();
-            }
-
-            const isUserGestureError = e.message && (e.message.includes('Must be handling a user gesture') || e.name === 'NotFoundError');
-
-            // Keep the retry logic, it's solid.
-            if (isAndroid && !e.retryAttempted && !isUserGestureError) {
-                print.log(`ble: android: connection failed, retrying once...`);
-                
-                await new Promise(resolve => setTimeout(resolve, 3000)); // Wait before retry
-
-                try {
-                    if (_device) {
-                        const retryConnect = connect({requesting: false, watching: false});
-                        // Manually mark the retry attempt on the error object for the next catch block
-                        retryConnect.catch(err => err.retryAttempted = true);
-                        return await retryConnect;
-                    } else {
-                        print.log(`ble: android: cannot retry without existing device`);
-                    }
-                } catch(retryError) {
-                    print.log(`ble: android: retry failed: ${retryError.name}: ${retryError.message}`);
-                    onConnectFail(retryError);
-                    console.warn(retryError);
-                    return;
-                }
-            }
-
             onConnectFail(e);
             console.warn(e);
         }
@@ -441,6 +363,10 @@ function Connectable(args = {}) {
         const devices = await navigator.bluetooth.getDevices();
         const device = devices.find(device => device.id === deviceId);
 
+        if (!device) {
+            throw new Error('Device not found in cached devices');
+        }
+
         let resolve;
         let reject;
         const maybeDevice = new Promise(function(res, rej) {
@@ -449,31 +375,38 @@ function Connectable(args = {}) {
         });
 
         const timeout = 1 * 60 * 1000; // 60s
+        // Use a local abort controller for this specific watch operation
+        const watchAbortController = new AbortController();
+
         const timeoutId = setTimeout(function() {
             print.log(`ble: watch: timeout:`);
-            abortController.abort();
-            reject();
+            watchAbortController.abort();
+            reject(new Error('Watch timeout'));
         }, timeout);
 
-        const abortController = new AbortController();
-        device.addEventListener(
-            'advertisementreceived',
-            onAdvertisementReceived,
-            {
-                signal: abortController.signal,
-                once: true,
-            }
-        );
-
         async function onAdvertisementReceived(e) {
-            abortController.abort();
+            watchAbortController.abort();
             clearTimeout(timeoutId);
-
             print.log(`ble: watch: advertisement: received:`);
             resolve(e.device);
         }
 
-        await device.watchAdvertisements({signal: abortController.signal});
+        device.addEventListener(
+            'advertisementreceived',
+            onAdvertisementReceived,
+            {
+                signal: watchAbortController.signal,
+                once: true,
+            }
+        );
+
+        try {
+            await device.watchAdvertisements({signal: watchAbortController.signal});
+        } catch(e) {
+            clearTimeout(timeoutId);
+            watchAbortController.abort();
+            throw e;
+        }
 
         return maybeDevice;
     }
@@ -501,6 +434,101 @@ function Connectable(args = {}) {
 
         const res = await _device.gatt.disconnect();
         onDisconnect();
+    }
+
+    // Proper device cleanup for Android Chrome ghost pairing issues
+    async function forgetDevice() {
+        if (!_device) return;
+
+        try {
+            // Try to forget the device if supported
+            if (_device.forget) {
+                await _device.forget();
+                print.log(`ble: forgot device: ${getName()}`);
+            }
+        } catch(e) {
+            console.warn('Failed to forget device:', e);
+        }
+
+        _device = null;
+        _connected = false;
+        _ready = false;
+        _status = Status.disconnected;
+        services = {};
+    }
+
+    // Detect if device is in ghost state (cached but unconnectable)
+    async function isDeviceGhost(device) {
+        if (!device || !device.watchAdvertisements) return false;
+
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+
+            try {
+                await device.watchAdvertisements({signal: controller.signal});
+
+                // Wait a bit for advertisement
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                clearTimeout(timeout);
+                controller.abort();
+
+                return false; // Got no errors, probably not ghost
+            } catch(e) {
+                return true; // Likely ghost
+            }
+        } catch(e) {
+            return true;
+        }
+    }
+
+    // Clear device and reconnect for ghost state recovery
+    async function clearAndReconnect() {
+        print.log('ble: attempting manual device clear...');
+
+        if (_connected) {
+            await disconnect();
+        }
+
+        await forgetDevice();
+
+        // Give Android time to clear its Bluetooth cache
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Request fresh device
+        await connect({requesting: true, watching: false});
+    }
+
+    // Connection with retry logic for Android ghost states
+    async function connectWithRetry(args = {}) {
+        const maxRetries = 2;
+        let attempt = 0;
+
+        while (attempt <= maxRetries) {
+            try {
+                await connect(args);
+                return; // Success
+            } catch(e) {
+                attempt++;
+
+                if (attempt <= maxRetries) {
+                    print.log(`ble: connection attempt ${attempt} failed, retrying...`);
+
+                    // On Android, try forgetting and re-requesting on second retry
+                    if (attempt === 2 && _device) {
+                        print.log('ble: clearing stale device and requesting fresh pairing');
+                        await forgetDevice();
+                        args.requesting = true;
+                        args.watching = false;
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    throw e;
+                }
+            }
+        }
     }
 
     function _onDisconnect() {
@@ -736,6 +764,11 @@ function Connectable(args = {}) {
         isReady,
         setReady,
         services,
+        // New Android Chrome ghost pairing recovery methods
+        forgetDevice,
+        isDeviceGhost,
+        clearAndReconnect,
+        connectWithRetry,
     };
 }
 
