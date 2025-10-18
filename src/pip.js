@@ -225,35 +225,60 @@ class PIPManager {
     }
 
     drawPIPContent(ctx, width, height) {
-        // Clear canvas
-        ctx.fillStyle = '#28272D';
+        // Clear canvas with dark background
+        ctx.fillStyle = '#1a1a1a';
         ctx.fillRect(0, 0, width, height);
 
-        // Set text style
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 16px Arial';
-        ctx.textAlign = 'left';
+        // Grid layout - 3 columns, 3 rows
+        const cols = 3;
+        const rows = 3;
+        const tileWidth = width / cols;
+        const tileHeight = height / rows;
 
-        const lineHeight = 25;
-        let y = 30;
+        const metrics = [
+            { label: 'Power', value: this.data.power, unit: 'W' },
+            { label: 'Heart Rate', value: this.data.heartRate, unit: 'bpm' },
+            { label: 'Cadence', value: this.data.cadence, unit: 'rpm' },
+            { label: 'Speed', value: this.data.speed, unit: 'km/h' },
+            { label: 'Interval', value: '--:--', unit: '' },
+            { label: 'Target', value: this.data.target, unit: 'W' },
+            { label: 'Elapsed', value: this.data.elapsedTime, unit: '' },
+            { label: 'Distance', value: this.data.distance, unit: 'km' },
+            { label: '', value: '', unit: '' } // Empty tile
+        ];
 
-        // Draw cycling data - formatted same as data tiles
-        ctx.fillText(`Power: ${this.data.power}`, 20, y);
-        y += lineHeight;
-        ctx.fillText(`Heart Rate: ${this.data.heartRate}`, 20, y);
-        y += lineHeight;
-        ctx.fillText(`Cadence: ${this.data.cadence}`, 20, y);
-        y += lineHeight;
-        ctx.fillText(`Speed: ${this.data.speed}`, 20, y);
-        y += lineHeight;
-        ctx.fillText(`Elapsed Time: ${this.data.elapsedTime}`, 20, y);
-        y += lineHeight;
-        ctx.fillText(`Target: ${this.data.target}`, 20, y);
+        // Draw each metric tile
+        metrics.forEach((metric, index) => {
+            if (!metric.label) return; // Skip empty tiles
 
-        // Draw distance in larger text at bottom
-        ctx.font = 'bold 20px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(`Distance: ${this.data.distance}`, width / 2, height - 20);
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+            const x = col * tileWidth;
+            const y = row * tileHeight;
+
+            // Draw tile border
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, tileWidth, tileHeight);
+
+            // Draw label
+            ctx.fillStyle = '#888';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(metric.label, x + tileWidth/2, y + 20);
+
+            // Draw value
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold 18px Arial';
+            ctx.fillText(metric.value, x + tileWidth/2, y + tileHeight/2 + 5);
+
+            // Draw unit
+            if (metric.unit) {
+                ctx.fillStyle = '#888';
+                ctx.font = '10px Arial';
+                ctx.fillText(metric.unit, x + tileWidth/2, y + tileHeight - 15);
+            }
+        });
     }
 
     setupPIPContent() {
@@ -294,167 +319,60 @@ class PIPManager {
         return `
             <div class="pip-container">
                 <div class="data-tiles">
-                    <div class="data-tile--small wide" id="data-tile--power-avg">
-                        <z-stack data-key="kcalZStack">
-                            <z-stack-item class="active">
-                                <h2 class="data-tile-small--heading">Power Lap</h2>
-                                <div class="data-tile-small--value-cont">
-                                    <power-lap id="power-lap-value"
-                                                class="data-tile-small--value">--</power-lap>
-                                </div>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile-small--heading">Power Avg</h2>
-                                <div class="data-tile-small--value-cont">
-                                    <power-avg id="power-avg-value"
-                                                class="data-tile-small--value">--</power-avg>
-                                </div>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile-small--heading">Kcal</h2>
-                                <div class="data-tile-small--value-cont">
-                                    <kcal-avg id="kcal-avg-value"
-                                                class="data-tile-small--value">--</kcal-avg>
-                                </div>
-                            </z-stack-item>
-                        <z-stack>
+                    <div class="data-tile" id="data-tile--power">
+                        <h2 class="data-tile--heading">Power</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-power" class="data-tile--value">${this.data.power}</span>
+                        </div>
                     </div>
 
-                    <div class="data-tile" id="data-tile--power">
-                        <z-stack data-key="powerZStack">
-                            <z-stack-item class="active">
-                                <h2 class="data-tile--heading">Power</h2>
-                                <div class="data-tile--value-cont">
-                                    <power-value id=power-value"
-                                                    class="data-tile--value"
-                                                    prop="db:power1s">--</power-value>
-                                </div>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Power 3s</h2>
-                                <div class="data-tile--value-cont">
-                                    <power-value id=power-value-3s"
-                                                    class="data-tile--value"
-                                                    prop="db:power3s">--</power-value>
-                                </div>
-                            </z-stack-item>
-                        </z-stack>
+                    <div class="data-tile" id="data-tile--heart-rate">
+                        <h2 class="data-tile--heading">Heart Rate</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-hr" class="data-tile--value">${this.data.heartRate}</span>
+                        </div>
+                    </div>
+
+                    <div class="data-tile" id="data-tile--cadence">
+                        <h2 class="data-tile--heading">Cadence</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-cadence" class="data-tile--value">${this.data.cadence}</span>
+                        </div>
+                    </div>
+
+                    <div class="data-tile" id="data-tile--speed">
+                        <h2 class="data-tile--heading">Speed</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-speed" class="data-tile--value">${this.data.speed}</span>
+                        </div>
                     </div>
 
                     <div class="data-tile" id="data-tile--interval-time">
                         <h2 class="data-tile--heading">Interval Time</h2>
                         <div class="data-tile--value-cont">
-                            <interval-time id="interval-time"
-                                            class="data-tile--value">--:--</interval-time>
+                            <span id="pip-interval" class="data-tile--value">--:--</span>
                         </div>
                     </div>
-                    <div class="data-tile" id="data-tile--heart-rate">
-                        <z-stack data-key="heartRateZStack">
-                            <z-stack-item class="active">
-                                <h2 class="data-tile--heading">Heart Rate</h2>
-                                <div class="data-tile--value-cont">
-                                    <heart-rate-value id="heart-rate-value"
-                                                    class="data-tile--value">--</heart-rate-value>
-                                </div>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Heart Rate Lap</h2>
-                                <div class="data-tile--value-cont">
-                                    <heart-rate-lap-value id="heart-rate-lap-value"
-                                                        class="data-tile--value">--</heart-rate-lap-value>
-                                </div>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Heart Rate Avg</h2>
-                                <div class="data-tile--value-cont">
-                                    <heart-rate-avg-value id="heart-rate-avg-value"
-                                                            class="data-tile--value">--</heart-rate-avg-value>
-                                </div>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Heart Rate Max</h2>
-                                <div class="data-tile--value-cont">
-                                    <heart-rate-max-value id="heart-rate-max-value"
-                                                        class="data-tile--value">--</heart-rate-max-value>
-                                </div>
-                            </z-stack-item>
-                        </z-stack>
-                    </div>
 
-                    <div class="data-tile--small wide" id="data-tile--speed">
-                        <h2 class="data-tile-small--heading">Speed</h2>
-                            <speed-switch id="distance-value"
-                                            class="data-tile-small--value">--</speed-switch>
-                    </div>
-                    <div class="data-tile--small wide" id="data-tile--slope">
-                        <h2 class="data-tile-small--heading">Slope</h2>
-                        <div class="data-tile-small--value-cont">
-                            <slope-target id=slope-target-value"
-                                            class="data-tile-small--value">--</slope-target>
+                    <div class="data-tile" id="data-tile--elapsed-time">
+                        <h2 class="data-tile--heading">Elapsed Time</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-time" class="data-tile--value">${this.data.elapsedTime}</span>
                         </div>
                     </div>
 
                     <div class="data-tile" id="data-tile--target">
-                        <z-stack data-key="powerTargetZStack">
-                            <z-stack-item class="active">
-                                <h2 class="data-tile--heading">Target</h2>
-                                <div class="data-tile--value-cont">
-                                    <power-target
-                                        class="companion-main data-tile--value">
-                                        --
-                                    </power-target>
-                                </div>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Target</h2>
-                                <div class="data-tile--value-cont complex">
-                                    <power-target
-                                        class="data-tile--value active">
-                                        --
-                                    </power-target>
-                                    <power-target-ftp
-                                        id="power-target-ftp"
-                                        class="data-tile-target--value active">
-                                        --
-                                    </power-ftp-value>
-                                </div>
-                            </z-stack-item>
-                        </z-stack>
-                    </div>
-                    <div class="data-tile" id="data-tile--elapsed-time">
-                        <h2 class="data-tile--heading">Elapsed Time</h2>
+                        <h2 class="data-tile--heading">Target</h2>
                         <div class="data-tile--value-cont">
-                            <timer-time id="elapsed-time"
-                                        class="data-tile--value">--:--:--</timer-time>
+                            <span id="pip-target" class="data-tile--value">${this.data.target}</span>
                         </div>
                     </div>
-                    <div class="data-tile" id="data-tile--cadence">
-                        <z-stack data-key="cadenceZStack">
-                            <z-stack-item class="active">
-                                <h2 class="data-tile--heading">Cadence</h2>
-                                <cadence-value id=cadence-value"
-                                                class="data-tile--value">--</cadence-value>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Cadence Lap</h2>
-                                <cadence-lap-value id=cadence-lap-value"
-                                                    class="data-tile--value">--</cadence-lap-value>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Cadence Avg</h2>
-                                <cadence-avg-value id=cadence-avg-value"
-                                                    class="data-tile--value">--</cadence-avg-value>
-                            </z-stack-item>
-                            <z-stack-item>
-                                <h2 class="data-tile--heading">Cadence Target</h2>
-                                <cadence-group class="data-tile--value-cont complex">
-                                    <cadence-value id=cadence-value"
-                                                    class="data-tile--value">--</cadence-value>
-                                    <cadence-target id=cadence-target-value"
-                                                    class="data-tile-target--value active"></cadence-target>
-                                </cadence-group>
-                            </z-stack-item>
-                        </z-stack>
+
+                    <div class="data-tile" id="data-tile--distance">
+                        <h2 class="data-tile--heading">Distance</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-distance" class="data-tile--value">${this.data.distance}</span>
+                        </div>
                     </div>
 
                 </div> <!-- end data-tiles -->
@@ -463,12 +381,33 @@ class PIPManager {
     }
 
     copyStylesToPIP(pipDocument) {
+        console.log('Copying styles to PIP window...');
+
         // Copy CSS styles to PIP window
         const stylesheets = document.querySelectorAll('link[rel="stylesheet"], style');
-        stylesheets.forEach(stylesheet => {
+        console.log(`Found ${stylesheets.length} stylesheets to copy`);
+
+        stylesheets.forEach((stylesheet, index) => {
             const clone = stylesheet.cloneNode(true);
             pipDocument.head.appendChild(clone);
+            console.log(`Copied stylesheet ${index + 1}:`, stylesheet.href || 'inline styles');
         });
+
+        // Also copy any inline styles from the main document
+        const mainStyles = document.head.querySelector('style');
+        if (mainStyles) {
+            const styleClone = mainStyles.cloneNode(true);
+            pipDocument.head.appendChild(styleClone);
+        }
+
+        // Add a fallback stylesheet URL if none found
+        if (stylesheets.length === 0) {
+            console.log('No stylesheets found, adding fallback link to main CSS');
+            const fallbackLink = pipDocument.createElement('link');
+            fallbackLink.rel = 'stylesheet';
+            fallbackLink.href = './index.css';
+            pipDocument.head.appendChild(fallbackLink);
+        }
     }
 
     updatePIPData() {
