@@ -99,19 +99,24 @@ async function getSpecificServices(server, uuidsObject) {
         uuidsObject.raceController,
         uuidsObject.smo2,
         uuidsObject.coreTemp,
-        uuidsObject.deviceInformation
-    ].filter(uuid => uuid !== undefined); // Filter out any undefined UUIDs
+        uuidsObject.deviceInformation,
+        // Add common Garmin/generic services
+        '0000180a-0000-1000-8000-00805f9b34fb', // Device Information
+        '0000180d-0000-1000-8000-00805f9b34fb', // Heart Rate Service (standard UUID)
+        '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
+        '00001801-0000-1000-8000-00805f9b34fb', // Generic Attribute
+    ].filter(uuid => uuid !== undefined);
 
     print.log(`ble: searching for ${serviceUuids.length} service types...`);
 
     const servicePromises = serviceUuids.map(uuid =>
         server.getPrimaryService(uuid)
             .then(service => {
-                print.log(`ble: found service: ${uuid}`);
+                print.log(`ble: ✓ found service: ${uuid}`);
                 return service;
             })
             .catch((err) => {
-                print.log(`ble: service not found: ${uuid}`);
+                print.log(`ble: ✗ service not found: ${uuid}`);
                 return null;
             })
     );
@@ -121,6 +126,30 @@ async function getSpecificServices(server, uuidsObject) {
 
     print.log(`ble: found ${services.length} specific services`);
     return services;
+}
+
+// Alternative discovery method for stubborn Garmin devices
+async function getAllServicesAlternative(server) {
+    print.log(`ble: trying alternative service discovery...`);
+
+    try {
+        // Try to get device info service first to "wake up" the device
+        try {
+            const deviceInfoService = await server.getPrimaryService('0000180a-0000-1000-8000-00805f9b34fb');
+            print.log('ble: device info service found, device is responding');
+        } catch(e) {
+            print.log('ble: no device info service, continuing...');
+        }
+
+        // Now try standard heart rate
+        const hrService = await server.getPrimaryService('0000180d-0000-1000-8000-00805f9b34fb');
+        print.log('ble: ✓ Heart rate service found!');
+        return [hrService];
+
+    } catch(e) {
+        print.log(`ble: alternative discovery failed: ${e.message}`);
+        return [];
+    }
 }
 
 // PWA detection utility
@@ -441,28 +470,51 @@ function Connectable(args = {}) {
             _server = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
 
-            // Platform-specific service discovery with retry logic
+            // Android/Garmin-specific: Try multiple discovery methods
             const isAndroid = /Android/i.test(navigator.userAgent);
-            try {
-                if (isAndroid) {
-                    // Try robust retry approach first on Android
+            let discoverySuccess = false;
+
+            // Method 1: Try standard getPrimaryServices with retry
+            if (isAndroid) {
+                try {
+                    print.log('ble: [Method 1] Trying getPrimaryServices with retry...');
                     _primaryServicesList = await getPrimaryServicesWithRetry(_server, 2);
-                } else {
-                    // Standard approach on other platforms
+                    discoverySuccess = _primaryServicesList.length > 0;
+                    print.log(`ble: [Method 1] ${discoverySuccess ? 'SUCCESS' : 'FAILED'} - found ${_primaryServicesList.length} services`);
+                } catch (e) {
+                    print.log(`ble: [Method 1] Failed: ${e.message}`);
+                }
+            } else {
+                try {
                     _primaryServicesList = await withTimeout(
                         _server.getPrimaryServices(),
                         5000,
                         'getPrimaryServices timeout'
                     );
+                    discoverySuccess = _primaryServicesList.length > 0;
+                } catch(e) {
+                    print.log(`ble: getPrimaryServices failed: ${e.message}`);
                 }
-            } catch (e) {
-                // Fallback to specific service discovery if full discovery fails
-                print.log(`ble: full service discovery failed, trying specific services...`);
-                _primaryServicesList = await getSpecificServices(_server, uuids);
+            }
 
-                if (_primaryServicesList.length === 0) {
-                    throw new Error('No supported services found on device');
-                }
+            // Method 2: Try alternative discovery (device info first, then heart rate)
+            if (!discoverySuccess) {
+                print.log('ble: [Method 2] Trying alternative discovery...');
+                _primaryServicesList = await getAllServicesAlternative(_server);
+                discoverySuccess = _primaryServicesList.length > 0;
+                print.log(`ble: [Method 2] ${discoverySuccess ? 'SUCCESS' : 'FAILED'} - found ${_primaryServicesList.length} services`);
+            }
+
+            // Method 3: Try specific service discovery
+            if (!discoverySuccess) {
+                print.log('ble: [Method 3] Trying specific service discovery...');
+                _primaryServicesList = await getSpecificServices(_server, uuids);
+                discoverySuccess = _primaryServicesList.length > 0;
+                print.log(`ble: [Method 3] ${discoverySuccess ? 'SUCCESS' : 'FAILED'} - found ${_primaryServicesList.length} services`);
+            }
+
+            if (!discoverySuccess || _primaryServicesList.length === 0) {
+                throw new Error('No supported services found on device. This device may not be compatible with Web Bluetooth.');
             }
 
             _primaryServices = gattListToObject(_primaryServicesList);
