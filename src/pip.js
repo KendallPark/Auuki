@@ -40,21 +40,48 @@ class PIPManager {
     }
 
     init() {
-        // Subscribe to data updates
-        xf.sub('db:power1s', (value) => { this.data.power = value || '--'; this.updatePIPData(); });
-        xf.sub('db:heartRate', (value) => { this.data.heartRate = value || '--'; this.updatePIPData(); });
-        xf.sub('db:cadence', (value) => { this.data.cadence = value || '--'; this.updatePIPData(); });
-        xf.sub('db:speed', (value) => { this.data.speed = value || '--'; this.updatePIPData(); });
-        xf.sub('db:elapsed', (value) => {
-            // Format elapsed time properly - value is in seconds
-            const hours = Math.floor(value / 3600);
-            const minutes = Math.floor((value % 3600) / 60);
-            const seconds = Math.floor(value % 60);
-            this.data.elapsedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        // Subscribe to data updates - using same formatting as watch.js data views
+        xf.sub('db:power1s', (value) => {
+            // PowerValue: Math.round(state)
+            this.data.power = value ? Math.round(value) : '--';
             this.updatePIPData();
         });
-        xf.sub('db:distance', (value) => { this.data.distance = value || '--'; this.updatePIPData(); });
-        xf.sub('db:powerTarget', (value) => { this.data.target = value || '--'; this.updatePIPData(); });
+
+        xf.sub('db:heartRate', (value) => {
+            // HeartRateValue: Math.round(state)
+            this.data.heartRate = value ? Math.round(value) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:cadence', (value) => {
+            // CadenceValue: Math.round(state)
+            this.data.cadence = value ? Math.round(value) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:speed', (value) => {
+            // SpeedValue: (state).toFixed(1)
+            this.data.speed = value ? value.toFixed(1) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:elapsed', (value) => {
+            // TimerTime: formatTime({value: this.state, format: this.format, unit: 'seconds'})
+            this.data.elapsedTime = value ? formatTime({value: value, format: 'hh:mm:ss', unit: 'seconds'}) : '--:--:--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:distance', (value) => {
+            // DistanceValue: (state).toFixed(2)
+            this.data.distance = value ? value.toFixed(2) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:powerTarget', (value) => {
+            // PowerTarget: Math.round(state)
+            this.data.target = value ? Math.round(value) : '--';
+            this.updatePIPData();
+        });
 
         // Listen for PIP events
         document.addEventListener('enterpictureinpicture', this.onEnterPIP.bind(this));
@@ -93,8 +120,8 @@ class PIPManager {
     async enterDocumentPIP() {
         try {
             const pipWindow = await window.documentPictureInPicture.requestWindow({
-                width: 320,
-                height: 240
+                width: 480,
+                height: 180
             });
 
             // Create PIP content
@@ -179,8 +206,8 @@ class PIPManager {
 
         // Create a simple canvas to use as video source
         const canvas = document.createElement('canvas');
-        canvas.width = 320;
-        canvas.height = 240;
+        canvas.width = 480;
+        canvas.height = 180;
         const ctx = canvas.getContext('2d');
 
         // Create a simple animation loop for the video
@@ -210,23 +237,23 @@ class PIPManager {
         const lineHeight = 25;
         let y = 30;
 
-        // Draw cycling data
-        ctx.fillText(`Power: ${this.data.power}W`, 20, y);
+        // Draw cycling data - formatted same as data tiles
+        ctx.fillText(`Power: ${this.data.power}`, 20, y);
         y += lineHeight;
-        ctx.fillText(`HR: ${this.data.heartRate} bpm`, 20, y);
+        ctx.fillText(`Heart Rate: ${this.data.heartRate}`, 20, y);
         y += lineHeight;
-        ctx.fillText(`Cadence: ${this.data.cadence} rpm`, 20, y);
+        ctx.fillText(`Cadence: ${this.data.cadence}`, 20, y);
         y += lineHeight;
-        ctx.fillText(`Speed: ${this.data.speed} km/h`, 20, y);
+        ctx.fillText(`Speed: ${this.data.speed}`, 20, y);
         y += lineHeight;
-        ctx.fillText(`Time: ${this.data.elapsedTime}`, 20, y);
+        ctx.fillText(`Elapsed Time: ${this.data.elapsedTime}`, 20, y);
         y += lineHeight;
-        ctx.fillText(`Target: ${this.data.target}W`, 20, y);
+        ctx.fillText(`Target: ${this.data.target}`, 20, y);
 
         // Draw distance in larger text at bottom
         ctx.font = 'bold 20px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`${this.data.distance} km`, width / 2, height - 20);
+        ctx.fillText(`Distance: ${this.data.distance}`, width / 2, height - 20);
     }
 
     setupPIPContent() {
@@ -241,8 +268,8 @@ class PIPManager {
     async setupDocumentPIP() {
         try {
             const pipDocument = await window.documentPictureInPicture.requestWindow({
-                width: 320,
-                height: 240
+                width: 480,
+                height: 180
             });
 
             // Create PIP content
@@ -265,41 +292,173 @@ class PIPManager {
 
     createPIPHTML() {
         return `
-            <div id="pip-container" style="
-                font-family: 'Roboto', Arial, sans-serif;
-                background: #28272D;
-                color: #FFFFFF;
-                padding: 15px;
-                width: 100%;
-                height: 100vh;
-                box-sizing: border-box;
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-            ">
-                <div id="pip-data" style="
-                    display: grid;
-                    gap: 8px;
-                    font-size: 14px;
-                    font-weight: 500;
-                ">
-                    <div id="pip-power">Power: <span>--</span>W</div>
-                    <div id="pip-hr">HR: <span>--</span> bpm</div>
-                    <div id="pip-cadence">Cadence: <span>--</span> rpm</div>
-                    <div id="pip-speed">Speed: <span>--</span> km/h</div>
-                    <div id="pip-time">Time: <span>--:--:--</span></div>
-                    <div id="pip-target">Target: <span>--</span>W</div>
-                </div>
-                <div id="pip-distance" style="
-                    text-align: center;
-                    font-size: 18px;
-                    font-weight: bold;
-                    border-top: 1px solid #444;
-                    padding-top: 10px;
-                ">
-                    <span>--</span> km
-                </div>
-            </div>
+            <div class="pip-container">
+                <div class="data-tiles">
+                    <div class="data-tile--small wide" id="data-tile--power-avg">
+                        <z-stack data-key="kcalZStack">
+                            <z-stack-item class="active">
+                                <h2 class="data-tile-small--heading">Power Lap</h2>
+                                <div class="data-tile-small--value-cont">
+                                    <power-lap id="power-lap-value"
+                                                class="data-tile-small--value">--</power-lap>
+                                </div>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile-small--heading">Power Avg</h2>
+                                <div class="data-tile-small--value-cont">
+                                    <power-avg id="power-avg-value"
+                                                class="data-tile-small--value">--</power-avg>
+                                </div>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile-small--heading">Kcal</h2>
+                                <div class="data-tile-small--value-cont">
+                                    <kcal-avg id="kcal-avg-value"
+                                                class="data-tile-small--value">--</kcal-avg>
+                                </div>
+                            </z-stack-item>
+                        <z-stack>
+                    </div>
+
+                    <div class="data-tile" id="data-tile--power">
+                        <z-stack data-key="powerZStack">
+                            <z-stack-item class="active">
+                                <h2 class="data-tile--heading">Power</h2>
+                                <div class="data-tile--value-cont">
+                                    <power-value id=power-value"
+                                                    class="data-tile--value"
+                                                    prop="db:power1s">--</power-value>
+                                </div>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Power 3s</h2>
+                                <div class="data-tile--value-cont">
+                                    <power-value id=power-value-3s"
+                                                    class="data-tile--value"
+                                                    prop="db:power3s">--</power-value>
+                                </div>
+                            </z-stack-item>
+                        </z-stack>
+                    </div>
+
+                    <div class="data-tile" id="data-tile--interval-time">
+                        <h2 class="data-tile--heading">Interval Time</h2>
+                        <div class="data-tile--value-cont">
+                            <interval-time id="interval-time"
+                                            class="data-tile--value">--:--</interval-time>
+                        </div>
+                    </div>
+                    <div class="data-tile" id="data-tile--heart-rate">
+                        <z-stack data-key="heartRateZStack">
+                            <z-stack-item class="active">
+                                <h2 class="data-tile--heading">Heart Rate</h2>
+                                <div class="data-tile--value-cont">
+                                    <heart-rate-value id="heart-rate-value"
+                                                    class="data-tile--value">--</heart-rate-value>
+                                </div>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Heart Rate Lap</h2>
+                                <div class="data-tile--value-cont">
+                                    <heart-rate-lap-value id="heart-rate-lap-value"
+                                                        class="data-tile--value">--</heart-rate-lap-value>
+                                </div>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Heart Rate Avg</h2>
+                                <div class="data-tile--value-cont">
+                                    <heart-rate-avg-value id="heart-rate-avg-value"
+                                                            class="data-tile--value">--</heart-rate-avg-value>
+                                </div>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Heart Rate Max</h2>
+                                <div class="data-tile--value-cont">
+                                    <heart-rate-max-value id="heart-rate-max-value"
+                                                        class="data-tile--value">--</heart-rate-max-value>
+                                </div>
+                            </z-stack-item>
+                        </z-stack>
+                    </div>
+
+                    <div class="data-tile--small wide" id="data-tile--speed">
+                        <h2 class="data-tile-small--heading">Speed</h2>
+                            <speed-switch id="distance-value"
+                                            class="data-tile-small--value">--</speed-switch>
+                    </div>
+                    <div class="data-tile--small wide" id="data-tile--slope">
+                        <h2 class="data-tile-small--heading">Slope</h2>
+                        <div class="data-tile-small--value-cont">
+                            <slope-target id=slope-target-value"
+                                            class="data-tile-small--value">--</slope-target>
+                        </div>
+                    </div>
+
+                    <div class="data-tile" id="data-tile--target">
+                        <z-stack data-key="powerTargetZStack">
+                            <z-stack-item class="active">
+                                <h2 class="data-tile--heading">Target</h2>
+                                <div class="data-tile--value-cont">
+                                    <power-target
+                                        class="companion-main data-tile--value">
+                                        --
+                                    </power-target>
+                                </div>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Target</h2>
+                                <div class="data-tile--value-cont complex">
+                                    <power-target
+                                        class="data-tile--value active">
+                                        --
+                                    </power-target>
+                                    <power-target-ftp
+                                        id="power-target-ftp"
+                                        class="data-tile-target--value active">
+                                        --
+                                    </power-ftp-value>
+                                </div>
+                            </z-stack-item>
+                        </z-stack>
+                    </div>
+                    <div class="data-tile" id="data-tile--elapsed-time">
+                        <h2 class="data-tile--heading">Elapsed Time</h2>
+                        <div class="data-tile--value-cont">
+                            <timer-time id="elapsed-time"
+                                        class="data-tile--value">--:--:--</timer-time>
+                        </div>
+                    </div>
+                    <div class="data-tile" id="data-tile--cadence">
+                        <z-stack data-key="cadenceZStack">
+                            <z-stack-item class="active">
+                                <h2 class="data-tile--heading">Cadence</h2>
+                                <cadence-value id=cadence-value"
+                                                class="data-tile--value">--</cadence-value>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Cadence Lap</h2>
+                                <cadence-lap-value id=cadence-lap-value"
+                                                    class="data-tile--value">--</cadence-lap-value>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Cadence Avg</h2>
+                                <cadence-avg-value id=cadence-avg-value"
+                                                    class="data-tile--value">--</cadence-avg-value>
+                            </z-stack-item>
+                            <z-stack-item>
+                                <h2 class="data-tile--heading">Cadence Target</h2>
+                                <cadence-group class="data-tile--value-cont complex">
+                                    <cadence-value id=cadence-value"
+                                                    class="data-tile--value">--</cadence-value>
+                                    <cadence-target id=cadence-target-value"
+                                                    class="data-tile-target--value active"></cadence-target>
+                                </cadence-group>
+                            </z-stack-item>
+                        </z-stack>
+                    </div>
+
+                </div> <!-- end data-tiles -->
+            </div> <!-- end pip-container -->
         `;
     }
 
@@ -328,13 +487,13 @@ class PIPManager {
         if (!this.pipDocument) return;
 
         const elements = {
-            power: this.pipDocument.querySelector('#pip-power span'),
-            hr: this.pipDocument.querySelector('#pip-hr span'),
-            cadence: this.pipDocument.querySelector('#pip-cadence span'),
-            speed: this.pipDocument.querySelector('#pip-speed span'),
-            time: this.pipDocument.querySelector('#pip-time span'),
-            target: this.pipDocument.querySelector('#pip-target span'),
-            distance: this.pipDocument.querySelector('#pip-distance span')
+            power: this.pipDocument.querySelector('#pip-power'),
+            hr: this.pipDocument.querySelector('#pip-hr'),
+            cadence: this.pipDocument.querySelector('#pip-cadence'),
+            speed: this.pipDocument.querySelector('#pip-speed'),
+            time: this.pipDocument.querySelector('#pip-time'),
+            target: this.pipDocument.querySelector('#pip-target'),
+            distance: this.pipDocument.querySelector('#pip-distance')
         };
 
         if (elements.power) elements.power.textContent = this.data.power;
