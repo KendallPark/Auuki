@@ -343,7 +343,7 @@ function Connectable(args = {}) {
             }
 
             // Add timeout for service discovery to prevent hanging
-            const serviceDiscoveryTimeout = isAndroid ? 15000 : 10000; // Longer timeout for Android
+            const serviceDiscoveryTimeout = isAndroid ? 30000 : 10000; // Much longer timeout for Android
             _primaryServicesList = await Promise.race([
                 _server.getPrimaryServices(),
                 new Promise((_, reject) =>
@@ -375,9 +375,11 @@ function Connectable(args = {}) {
             print.log(`ble: connection error: ${e.name}: ${e.message}`);
             if (e.code) print.log(`ble: error code: ${e.code}`);
 
-            // Android-specific: Retry connection once on failure
+            // Android-specific: Retry connection once on failure (but only for non-user gesture errors)
             const isAndroid = /Android/i.test(navigator.userAgent);
-            if (isAndroid && !e.retryAttempted) {
+            const isUserGestureError = e.message && e.message.includes('Must be handling a user gesture');
+
+            if (isAndroid && !e.retryAttempted && !isUserGestureError) {
                 print.log(`ble: android: connection failed, retrying once...`);
                 e.retryAttempted = true;
 
@@ -385,7 +387,12 @@ function Connectable(args = {}) {
                 await new Promise(resolve => setTimeout(resolve, 3000));
 
                 try {
-                    return await connect(args);
+                    // Only retry if we already have a device (avoid requestDevice call)
+                    if (_device) {
+                        return await connect({requesting: false, watching: false});
+                    } else {
+                        print.log(`ble: android: cannot retry without existing device`);
+                    }
                 } catch(retryError) {
                     print.log(`ble: android: retry failed: ${retryError.name}: ${retryError.message}`);
                     onConnectFail(retryError);
