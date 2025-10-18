@@ -322,7 +322,16 @@ function Connectable(args = {}) {
             }
             _server              = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
-            _primaryServicesList = await _server.getPrimaryServices();
+
+            // Add timeout for service discovery to prevent hanging
+            const serviceDiscoveryTimeout = 10000; // 10 seconds
+            _primaryServicesList = await Promise.race([
+                _server.getPrimaryServices(),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
+                )
+            ]);
+
             _primaryServices     = gattListToObject(_primaryServicesList);
             _connected           = true;
             _autoReconnect       = true;
