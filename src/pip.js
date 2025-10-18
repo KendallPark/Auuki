@@ -205,9 +205,12 @@ class PIPManager {
         video.loop = true;
 
         // Create a simple canvas to use as video source
+        // Use full screen width for Android, with higher resolution
+        const screenWidth = window.screen.width || 1080;
+        const aspectRatio = 3; // 3:1 aspect ratio
         const canvas = document.createElement('canvas');
-        canvas.width = 480;
-        canvas.height = 180;
+        canvas.width = screenWidth;
+        canvas.height = screenWidth / aspectRatio;
         const ctx = canvas.getContext('2d');
 
         // Create a simple animation loop for the video
@@ -236,15 +239,15 @@ class PIPManager {
         const tileHeight = height / rows;
 
         const metrics = [
-            { label: 'Power', value: this.data.power, unit: 'W' },
-            { label: 'Heart Rate', value: this.data.heartRate, unit: 'bpm' },
-            { label: 'Cadence', value: this.data.cadence, unit: 'rpm' },
-            { label: 'Speed', value: this.data.speed, unit: 'km/h' },
-            { label: 'Interval', value: '--:--', unit: '' },
-            { label: 'Target', value: this.data.target, unit: 'W' },
-            { label: 'Elapsed', value: this.data.elapsedTime, unit: '' },
-            { label: 'Distance', value: this.data.distance, unit: 'km' },
-            { label: '', value: '', unit: '' } // Empty tile
+            { label: 'Power', value: this.data.power },
+            { label: 'Interval Time', value: '--:--' },
+            { label: 'Heart Rate', value: this.data.heartRate },
+            { label: 'Target', value: this.data.target },
+            { label: 'Elapsed Time', value: this.data.elapsedTime },
+            { label: 'Cadence', value: this.data.cadence },
+            { label: 'Power Lap', value: '--' },
+            { label: 'Speed', value: this.data.speed },
+            { label: 'Distance', value: this.data.distance }
         ];
 
         // Draw each metric tile
@@ -272,12 +275,6 @@ class PIPManager {
             ctx.font = 'bold 18px Arial';
             ctx.fillText(metric.value, x + tileWidth/2, y + tileHeight/2 + 5);
 
-            // Draw unit
-            if (metric.unit) {
-                ctx.fillStyle = '#888';
-                ctx.font = '10px Arial';
-                ctx.fillText(metric.unit, x + tileWidth/2, y + tileHeight - 15);
-            }
         });
     }
 
