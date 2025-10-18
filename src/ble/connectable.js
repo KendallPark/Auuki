@@ -315,10 +315,14 @@ function Connectable(args = {}) {
 
         try {
             if(watching) {
+                print.log(`ble: attempting watch for device: ${_device?.id}`);
                 _device = await watch(_device.id);
+                print.log(`ble: watch successful for: ${_device?.name}`);
             }
             if(requesting) {
+                print.log(`ble: requesting device...`);
                 _device = await request();
+                print.log(`ble: device selected: ${_device?.name}`);
             }
 
             // Android-specific: Add delay before GATT connection
@@ -328,6 +332,7 @@ function Connectable(args = {}) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
+            print.log(`ble: attempting GATT connection to: ${getName()}`);
             _server = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
 
@@ -366,6 +371,10 @@ function Connectable(args = {}) {
             _connected = false;
             _status = Status.disconnected;
 
+            // Log detailed error information
+            print.log(`ble: connection error: ${e.name}: ${e.message}`);
+            if (e.code) print.log(`ble: error code: ${e.code}`);
+
             // Android-specific: Retry connection once on failure
             const isAndroid = /Android/i.test(navigator.userAgent);
             if (isAndroid && !e.retryAttempted) {
@@ -378,7 +387,7 @@ function Connectable(args = {}) {
                 try {
                     return await connect(args);
                 } catch(retryError) {
-                    print.log(`ble: android: retry failed`);
+                    print.log(`ble: android: retry failed: ${retryError.name}: ${retryError.message}`);
                     onConnectFail(retryError);
                     console.warn(retryError);
                     return;
