@@ -266,7 +266,7 @@ class PIPManager {
             const y = row * tileHeight;
 
             // Draw label with proper spacing
-            ctx.fillStyle = '#888';
+            ctx.fillStyle = '#666';
             ctx.font = 'bold 20px Arial';
             ctx.textAlign = 'center';
             ctx.fillText(metric.label, x + tileWidth/2, y + 25);
