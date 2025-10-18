@@ -289,6 +289,10 @@ function Connectable(args = {}) {
                 abortController.abort();
             }
             _status = Status.disconnected;
+            _connected = false;
+
+            // Call the appropriate callback to update UI
+            onConnectFail(new Error('Connection cancelled by user'));
             return;
         }
 
@@ -298,20 +302,14 @@ function Connectable(args = {}) {
         const watching = args.watching ?? false;
 
         // guard
-        // stop execution on missuse and notify the developer
         if((!requesting && !watching) && !exists(_device)) {
-            // can't be watching or requesting if device is not passed as config
             console.error(`ble: connectable: 'watching false and requesting false requires a gatt device to be passed as config to Connectable!'`);
-
             print.makeCoffee();
-
+            return;
         }
         if(requesting && watching) {
-            // can't be watching and requesting at the same time
             console.error(`ble: connectable: 'can't be requesting and watching for a devices at the same time pick one!'`);
-
             print.callKarenFromHR();
-
             return;
         }
         // end guard
@@ -321,6 +319,8 @@ function Connectable(args = {}) {
 
         _status = Status.connecting;
         onConnecting();
+
+        const isAndroid = /Android/i.test(navigator.userAgent);
 
         try {
             if(watching) {
@@ -334,10 +334,9 @@ function Connectable(args = {}) {
                 print.log(`ble: device selected: ${_device?.name}`);
             }
 
-            // Android-specific: Add delay before GATT connection
-            const isAndroid = /Android/i.test(navigator.userAgent);
+            // A small delay before connecting can sometimes help.
             if (isAndroid) {
-                print.log(`ble: android: adding connection delay...`);
+                print.log(`ble: android: adding pre-connection delay...`);
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
@@ -345,63 +344,27 @@ function Connectable(args = {}) {
             _server = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
 
-            // Android-specific: Add delay before service discovery
+            // KEY CHANGE 1: Introduce a single, longer delay after connecting.
+            // This is the most critical fix for Android service discovery issues.
             if (isAndroid) {
                 print.log(`ble: android: adding service discovery delay...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, 3000));
             }
 
-            // Android-specific: Try alternative service discovery for problematic devices
-            if (isAndroid) {
-                print.log(`ble: android: attempting targeted service discovery...`);
-                try {
-                    // Try to get specific services one by one instead of all at once
-                    _primaryServicesList = [];
-                    const targetServices = [
-                        uuids.heartRate,
-                        uuids.battery,
-                        uuids.deviceInformation
-                    ];
+            // KEY CHANGE 2: Simplify service discovery.
+            // We removed the complex targeted/fallback logic and use one robust method.
+            const serviceDiscoveryTimeout = 30000; // 30 seconds
+            print.log(`ble: gatt: discovering services (timeout: ${serviceDiscoveryTimeout}ms)...`);
+            
+            _primaryServicesList = await Promise.race([
+                _server.getPrimaryServices(),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
+                )
+            ]);
 
-                    for (const serviceUuid of targetServices) {
-                        // Check if connection was cancelled
-                        if (abortController.signal.aborted) {
-                            throw new Error('Connection cancelled by user');
-                        }
-
-                        try {
-                            const service = await _server.getPrimaryService(serviceUuid);
-                            _primaryServicesList.push(service);
-                            print.log(`ble: android: found service: ${serviceUuid}`);
-                        } catch (e) {
-                            // Service not available, continue
-                            print.log(`ble: android: service not found: ${serviceUuid}`);
-                        }
-                    }
-
-                    if (_primaryServicesList.length === 0) {
-                        throw new Error('No supported services found');
-                    }
-                } catch (e) {
-                    print.log(`ble: android: targeted discovery failed, trying full discovery...`);
-                    // Fallback to full service discovery with longer timeout
-                    const serviceDiscoveryTimeout = 45000; // 45 seconds
-                    _primaryServicesList = await Promise.race([
-                        _server.getPrimaryServices(),
-                        new Promise((_, reject) =>
-                            setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
-                        )
-                    ]);
-                }
-            } else {
-                // Non-Android: use standard service discovery
-                const serviceDiscoveryTimeout = 10000;
-                _primaryServicesList = await Promise.race([
-                    _server.getPrimaryServices(),
-                    new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
-                    )
-                ]);
+            if (!_primaryServicesList || _primaryServicesList.length === 0) {
+                throw new Error('No primary services found on device.');
             }
 
             _primaryServices     = gattListToObject(_primaryServicesList);
@@ -414,35 +377,38 @@ function Connectable(args = {}) {
             print.log(`ble: gatt: services: of: ${getName()}`);
             printServices();
 
-            let resSetup = await setup();
+            await setup();
 
-            // calling the connected callback last, because only at that point
-            // the device is usable.
             onConnected();
 
         } catch(e) {
             _connected = false;
             _status = Status.disconnected;
 
-            // Log detailed error information
             print.log(`ble: connection error: ${e.name}: ${e.message}`);
             if (e.code) print.log(`ble: error code: ${e.code}`);
 
-            // Android-specific: Retry connection once on failure (but only for non-user gesture errors)
-            const isAndroid = /Android/i.test(navigator.userAgent);
-            const isUserGestureError = e.message && e.message.includes('Must be handling a user gesture');
+            // KEY CHANGE 3: Ensure a clean disconnect before retrying.
+            // This prevents the device from getting stuck in a partially connected state.
+            if (_device?.gatt?.connected) {
+                print.log(`ble: cleaning up GATT connection before retry...`);
+                _device.gatt.disconnect();
+            }
 
+            const isUserGestureError = e.message && (e.message.includes('Must be handling a user gesture') || e.name === 'NotFoundError');
+
+            // Keep the retry logic, it's solid.
             if (isAndroid && !e.retryAttempted && !isUserGestureError) {
                 print.log(`ble: android: connection failed, retrying once...`);
-                e.retryAttempted = true;
-
-                // Wait before retry
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                await new Promise(resolve => setTimeout(resolve, 3000)); // Wait before retry
 
                 try {
-                    // Only retry if we already have a device (avoid requestDevice call)
                     if (_device) {
-                        return await connect({requesting: false, watching: false});
+                        const retryConnect = connect({requesting: false, watching: false});
+                        // Manually mark the retry attempt on the error object for the next catch block
+                        retryConnect.catch(err => err.retryAttempted = true);
+                        return await retryConnect;
                     } else {
                         print.log(`ble: android: cannot retry without existing device`);
                     }
