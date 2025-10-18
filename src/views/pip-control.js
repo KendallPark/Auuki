@@ -33,49 +33,28 @@ class PIPControl extends HTMLElement {
 
         if (!this.isSupported) {
             this.innerHTML = `
-                <button class="pip-control--btn pip-unsupported" title="Picture-in-Picture not supported - click for debug info"
-                        style="opacity: 0.6; cursor: pointer;">
-                    <svg class="pip-control--icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/>
-                        <path d="M2 2l20 20" stroke="currentColor" stroke-width="2"/>
-                    </svg>
-                    <span class="pip-control--label">PIP Not Available</span>
-                </button>
+                <svg class="menu--btn--icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="opacity: 0.5;">
+                    <path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/>
+                    <path d="M2 2l20 20" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                <div class="menu--btn--label">Overlay</div>
             `;
-
-            // Add debug click handler even when not supported
-            const button = this.querySelector('.pip-control--btn');
-            if (button) {
-                button.addEventListener('click', () => {
-                    console.log('Debug: PIP support check results:', {
-                        documentPIP: 'documentPictureInPicture' in window,
-                        videoPIP: 'requestPictureInPicture' in HTMLVideoElement.prototype,
-                        userAgent: navigator.userAgent
-                    });
-                    alert('PIP Debug info logged to console. Check developer tools.');
-                });
-            }
             return;
         }
 
         this.innerHTML = `
-            <button class="pip-control--btn ${this.isActive ? 'active' : ''}"
-                    title="${this.isActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture'}">
-                <svg class="pip-control--icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/>
-                </svg>
-                <span class="pip-control--label">${this.isActive ? 'Exit PIP' : 'Enter PIP'}</span>
-            </button>
+            <svg class="menu--btn--icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/>
+            </svg>
+            <div class="menu--btn--label">Overlay</div>
         `;
     }
 
     setupEventListeners() {
         if (!this.isSupported) return;
 
-        const button = this.querySelector('.pip-control--btn');
-        if (button) {
-            button.addEventListener('click', this.onTogglePIP.bind(this), this.signal);
-        }
+        // Add click listener to the entire component
+        this.addEventListener('click', this.onTogglePIP.bind(this), this.signal);
     }
 
     async onTogglePIP() {
@@ -105,13 +84,11 @@ class PIPControl extends HTMLElement {
     }
 
     updateButtonState() {
-        const button = this.querySelector('.pip-control--btn');
-        const label = this.querySelector('.pip-control--label');
-
-        if (button && label) {
-            button.className = `pip-control--btn ${this.isActive ? 'active' : ''}`;
-            button.title = this.isActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture';
-            label.textContent = this.isActive ? 'Exit PIP' : 'Enter PIP';
+        // Update the component class to show active state
+        if (this.isActive) {
+            this.classList.add('active');
+        } else {
+            this.classList.remove('active');
         }
     }
 
