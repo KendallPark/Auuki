@@ -205,17 +205,23 @@ class PIPManager {
         video.loop = true;
 
         // Create a simple canvas to use as video source
-        // Use full screen width for Android, with higher resolution
+        // Use high resolution for Android with device pixel ratio
         const screenWidth = window.screen.width || 1080;
+        const devicePixelRatio = window.devicePixelRatio || 2;
         const aspectRatio = 3; // 3:1 aspect ratio
         const canvas = document.createElement('canvas');
-        canvas.width = screenWidth;
-        canvas.height = screenWidth / aspectRatio;
+        // Scale up by device pixel ratio for crisp rendering
+        canvas.width = screenWidth * devicePixelRatio;
+        canvas.height = (screenWidth / aspectRatio) * devicePixelRatio;
         const ctx = canvas.getContext('2d');
+
+        // Scale the context to match device pixel ratio for crisp text
+        ctx.scale(devicePixelRatio, devicePixelRatio);
 
         // Create a simple animation loop for the video
         const animate = () => {
-            this.drawPIPContent(ctx, canvas.width, canvas.height);
+            // Pass logical dimensions, not physical canvas dimensions
+            this.drawPIPContent(ctx, screenWidth, screenWidth / aspectRatio);
             requestAnimationFrame(animate);
         };
         animate();
@@ -259,21 +265,16 @@ class PIPManager {
             const x = col * tileWidth;
             const y = row * tileHeight;
 
-            // Draw tile border
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x, y, tileWidth, tileHeight);
-
-            // Draw label
+            // Draw label with proper spacing
             ctx.fillStyle = '#888';
-            ctx.font = 'bold 12px Arial';
+            ctx.font = 'bold 20px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(metric.label, x + tileWidth/2, y + 20);
+            ctx.fillText(metric.label, x + tileWidth/2, y + 25);
 
-            // Draw value
+            // Draw value with proper spacing below label
             ctx.fillStyle = '#FFF';
-            ctx.font = 'bold 18px Arial';
-            ctx.fillText(metric.value, x + tileWidth/2, y + tileHeight/2 + 5);
+            ctx.font = 'bold 32px Arial';
+            ctx.fillText(metric.value, x + tileWidth/2, y + tileHeight - 15);
 
         });
     }
