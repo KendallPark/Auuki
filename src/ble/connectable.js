@@ -320,11 +320,25 @@ function Connectable(args = {}) {
             if(requesting) {
                 _device = await request();
             }
-            _server              = await _device.gatt.connect();
+
+            // Android-specific: Add delay before GATT connection
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            if (isAndroid) {
+                print.log(`ble: android: adding connection delay...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            _server = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
 
+            // Android-specific: Add delay before service discovery
+            if (isAndroid) {
+                print.log(`ble: android: adding service discovery delay...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
             // Add timeout for service discovery to prevent hanging
-            const serviceDiscoveryTimeout = 10000; // 10 seconds
+            const serviceDiscoveryTimeout = isAndroid ? 15000 : 10000; // Longer timeout for Android
             _primaryServicesList = await Promise.race([
                 _server.getPrimaryServices(),
                 new Promise((_, reject) =>
@@ -351,6 +365,26 @@ function Connectable(args = {}) {
         } catch(e) {
             _connected = false;
             _status = Status.disconnected;
+
+            // Android-specific: Retry connection once on failure
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            if (isAndroid && !e.retryAttempted) {
+                print.log(`ble: android: connection failed, retrying once...`);
+                e.retryAttempted = true;
+
+                // Wait before retry
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                try {
+                    return await connect(args);
+                } catch(retryError) {
+                    print.log(`ble: android: retry failed`);
+                    onConnectFail(retryError);
+                    console.warn(retryError);
+                    return;
+                }
+            }
+
             onConnectFail(e);
             console.warn(e);
         }
