@@ -27,7 +27,16 @@ class PIPManager {
 
     checkPIPSupport() {
         // Check if Picture-in-Picture API is available
-        return 'documentPictureInPicture' in window || 'requestPictureInPicture' in HTMLVideoElement.prototype;
+        const hasDocumentPIP = 'documentPictureInPicture' in window;
+        const hasVideoPIP = 'requestPictureInPicture' in HTMLVideoElement.prototype;
+
+        console.log('PIP Support Check:', {
+            documentPIP: hasDocumentPIP,
+            videoPIP: hasVideoPIP,
+            userAgent: navigator.userAgent
+        });
+
+        return hasDocumentPIP || hasVideoPIP;
     }
 
     init() {
@@ -36,7 +45,14 @@ class PIPManager {
         xf.sub('db:heartRate', (value) => { this.data.heartRate = value || '--'; this.updatePIPData(); });
         xf.sub('db:cadence', (value) => { this.data.cadence = value || '--'; this.updatePIPData(); });
         xf.sub('db:speed', (value) => { this.data.speed = value || '--'; this.updatePIPData(); });
-        xf.sub('db:elapsed', (value) => { this.data.elapsedTime = formatTime(value) || '--:--:--'; this.updatePIPData(); });
+        xf.sub('db:elapsed', (value) => {
+            // Format elapsed time properly - value is in seconds
+            const hours = Math.floor(value / 3600);
+            const minutes = Math.floor((value % 3600) / 60);
+            const seconds = Math.floor(value % 60);
+            this.data.elapsedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            this.updatePIPData();
+        });
         xf.sub('db:distance', (value) => { this.data.distance = value || '--'; this.updatePIPData(); });
         xf.sub('db:powerTarget', (value) => { this.data.target = value || '--'; this.updatePIPData(); });
 
@@ -46,27 +62,103 @@ class PIPManager {
     }
 
     async enterPIP() {
+        console.log('enterPIP called');
+
         if (!this.isSupported) {
             console.warn('Picture-in-Picture not supported');
             return false;
         }
 
         try {
+            // Try Document PIP first (Chrome/Edge)
+            if ('documentPictureInPicture' in window) {
+                console.log('Attempting Document PIP...');
+                return await this.enterDocumentPIP();
+            }
+
+            // Fallback to Video PIP (Safari/Firefox)
+            if ('requestPictureInPicture' in HTMLVideoElement.prototype) {
+                console.log('Attempting Video PIP...');
+                return await this.enterVideoPIP();
+            }
+
+            console.warn('No PIP API available');
+            return false;
+        } catch (error) {
+            console.error('Failed to enter PIP mode:', error);
+            return false;
+        }
+    }
+
+    async enterDocumentPIP() {
+        try {
+            const pipWindow = await window.documentPictureInPicture.requestWindow({
+                width: 320,
+                height: 240
+            });
+
+            // Create PIP content
+            const pipContent = this.createPIPHTML();
+            pipWindow.document.body.innerHTML = pipContent;
+
+            // Copy styles to PIP window
+            this.copyStylesToPIP(pipWindow.document);
+
+            // Store reference
+            this.pipWindow = pipWindow;
+            this.pipDocument = pipWindow.document;
+            this.isPIPActive = true;
+
+            // Update content immediately
+            this.updatePIPContent();
+
+            // Listen for close
+            pipWindow.addEventListener('pagehide', this.onLeavePIP.bind(this));
+
+            console.log('Document PIP activated');
+            xf.dispatch('pip:entered');
+            return true;
+        } catch (error) {
+            console.error('Document PIP failed:', error);
+            return false;
+        }
+    }
+
+    async enterVideoPIP() {
+        try {
             // Create a video element as PIP container
             const video = this.createPIPVideo();
             document.body.appendChild(video);
+
+            // Wait for video to be ready before requesting PIP
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Video load timeout'));
+                }, 5000);
+
+                const onReady = () => {
+                    clearTimeout(timeout);
+                    video.removeEventListener('loadedmetadata', onReady);
+                    video.removeEventListener('canplay', onReady);
+                    resolve();
+                };
+
+                video.addEventListener('loadedmetadata', onReady);
+                video.addEventListener('canplay', onReady);
+
+                // Start playing to ensure metadata loads
+                video.play().catch(console.warn);
+            });
 
             // Request Picture-in-Picture
             this.pipWindow = await video.requestPictureInPicture();
             this.isPIPActive = true;
 
-            // Setup PIP content
-            this.setupPIPContent();
-
-            console.log('PIP mode activated');
+            console.log('Video PIP activated');
+            xf.dispatch('pip:entered');
             return true;
         } catch (error) {
-            console.error('Failed to enter PIP mode:', error);
+            console.error('Video PIP failed:', error);
             return false;
         }
     }
@@ -276,8 +368,19 @@ class PIPManager {
     }
 
     toggle() {
+        console.log('PIP Manager toggle called. Current state:', {
+            isSupported: this.isSupported,
+            isPIPActive: this.isPIPActive
+        });
+
+        if (!this.isSupported) {
+            console.warn('PIP not supported on this device/browser');
+            return Promise.resolve(false);
+        }
+
         if (this.isPIPActive) {
             this.exitPIP();
+            return Promise.resolve(true);
         } else {
             return this.enterPIP();
         }
