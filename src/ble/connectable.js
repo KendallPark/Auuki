@@ -85,17 +85,24 @@ async function getPrimaryServicesWithRetry(server, maxRetries = 2) {
 }
 
 // Alternative: Get specific services instead of all services (for problematic devices)
-async function getSpecificServices(server, uuids) {
+async function getSpecificServices(server, uuidsObject) {
     print.log(`ble: attempting specific service discovery...`);
 
     const serviceUuids = [
-        uuids.heartRate,
-        uuids.battery,
-        uuids.cyclingPower,
-        uuids.speedCadence,
-        uuids.fitnessMachine,
-        uuids.deviceInformation
-    ];
+        uuidsObject.heartRate,
+        uuidsObject.battery,
+        uuidsObject.cyclingPower,
+        uuidsObject.speedCadence,
+        uuidsObject.fitnessMachine,
+        uuidsObject.fec,
+        uuidsObject.wahooFitnessMachine,
+        uuidsObject.raceController,
+        uuidsObject.smo2,
+        uuidsObject.coreTemp,
+        uuidsObject.deviceInformation
+    ].filter(uuid => uuid !== undefined); // Filter out any undefined UUIDs
+
+    print.log(`ble: searching for ${serviceUuids.length} service types...`);
 
     const servicePromises = serviceUuids.map(uuid =>
         server.getPrimaryService(uuid)
@@ -103,7 +110,7 @@ async function getSpecificServices(server, uuids) {
                 print.log(`ble: found service: ${uuid}`);
                 return service;
             })
-            .catch(() => {
+            .catch((err) => {
                 print.log(`ble: service not found: ${uuid}`);
                 return null;
             })
