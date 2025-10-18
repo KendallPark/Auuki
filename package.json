@@ -12,7 +12,8 @@
         "test": "jest",
         "start": "parcel",
         "starttls": "parcel --cert ./dev_cert/cert.pem --key ./dev_cert/key.pem",
-        "build": "parcel build"
+        "build": "parcel build --public-url ./",
+        "build:gh-pages": "parcel build --public-url /Auuki/"
     },
     "dependencies": {
         "@babel/core": "^7.13.13",
