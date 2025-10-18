@@ -11,7 +11,7 @@ function Auth(args = {}) {
     const pwa_uri = config.get().PWA_URI;
 
     let _loggedIn = false;
-    let _hasApi = true;
+    let _hasApi = true; // Try API calls, handle CORS failures gracefully
 
     let _turnstileLoaded = false;
     let _turnstileId;
@@ -324,8 +324,18 @@ function Auth(args = {}) {
 
             return {strava: false, intervals: false, trainingPeaks: false};
         } catch(error) {
-            console.log(`:api :no-api`);
-            console.log(error);
+            const isSelfHosted = config.get().SELF_HOSTED;
+
+            if (isSelfHosted && error.message.includes('CORS')) {
+                console.log(`:api :cors-error :self-hosted`);
+                console.log('CORS error on self-hosted deployment - cloud integrations disabled');
+            } else {
+                console.log(`:api :no-api`);
+                console.log(error);
+            }
+
+            _loggedIn = false;
+            _hasApi = false;
 
             if(_turnstileLoaded) {
                 removeTurnstile();
