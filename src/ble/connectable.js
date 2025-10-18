@@ -1,4 +1,14 @@
 import { equals, exists, first, expect, compose2, time, print, } from '../functions.js';
+
+// Helper function to add timeout to any promise
+function withTimeout(promise, ms, errorMessage) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(errorMessage)), ms)
+        )
+    ]);
+}
 import { Characteristic } from './characteristic.js';
 import { Service, serviceToString, gattListToObject, } from './service.js';
 import FTMS from './ftms/ftms.js';
@@ -50,6 +60,62 @@ import { Device, Status, } from './enums.js';
 // const powerMeter = Connectable({filter: powerMeterFilter});
 // await powerMeter.connect();
 //
+// Retry logic specifically for Android getPrimaryServices issues
+async function getPrimaryServicesWithRetry(server, maxRetries = 2) {
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const timeout = isAndroid ? 8000 : 5000; // Longer timeout for Android
+
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            print.log(`ble: getPrimaryServices attempt ${i + 1}/${maxRetries}`);
+            return await withTimeout(
+                server.getPrimaryServices(),
+                timeout,
+                `getPrimaryServices timeout (attempt ${i + 1})`
+            );
+        } catch (e) {
+            print.log(`ble: getPrimaryServices attempt ${i + 1} failed: ${e.message}`);
+            if (i === maxRetries - 1) throw e;
+
+            // Wait before retry, longer on Android
+            const retryDelay = isAndroid ? 2000 : 1000;
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+    }
+}
+
+// Alternative: Get specific services instead of all services (for problematic devices)
+async function getSpecificServices(server, uuids) {
+    print.log(`ble: attempting specific service discovery...`);
+
+    const serviceUuids = [
+        uuids.heartRate,
+        uuids.battery,
+        uuids.cyclingPower,
+        uuids.speedCadence,
+        uuids.fitnessMachine,
+        uuids.deviceInformation
+    ];
+
+    const servicePromises = serviceUuids.map(uuid =>
+        server.getPrimaryService(uuid)
+            .then(service => {
+                print.log(`ble: found service: ${uuid}`);
+                return service;
+            })
+            .catch(() => {
+                print.log(`ble: service not found: ${uuid}`);
+                return null;
+            })
+    );
+
+    const services = (await Promise.all(servicePromises))
+        .filter(service => service !== null);
+
+    print.log(`ble: found ${services.length} specific services`);
+    return services;
+}
+
 function Connectable(args = {}) {
     const defaults = {
         name: 'Unknown',
@@ -320,10 +386,34 @@ function Connectable(args = {}) {
             if(requesting) {
                 _device = await request();
             }
-            _server              = await _device.gatt.connect();
+            _server = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
-            _primaryServicesList = await _server.getPrimaryServices();
-            _primaryServices     = gattListToObject(_primaryServicesList);
+
+            // Platform-specific service discovery with retry logic
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            try {
+                if (isAndroid) {
+                    // Try robust retry approach first on Android
+                    _primaryServicesList = await getPrimaryServicesWithRetry(_server, 2);
+                } else {
+                    // Standard approach on other platforms
+                    _primaryServicesList = await withTimeout(
+                        _server.getPrimaryServices(),
+                        5000,
+                        'getPrimaryServices timeout'
+                    );
+                }
+            } catch (e) {
+                // Fallback to specific service discovery if full discovery fails
+                print.log(`ble: full service discovery failed, trying specific services...`);
+                _primaryServicesList = await getSpecificServices(_server, uuids);
+
+                if (_primaryServicesList.length === 0) {
+                    throw new Error('No supported services found on device');
+                }
+            }
+
+            _primaryServices = gattListToObject(_primaryServicesList);
             _connected           = true;
             _autoReconnect       = true;
             _status              = Status.connected;
