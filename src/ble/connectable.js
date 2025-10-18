@@ -282,8 +282,17 @@ function Connectable(args = {}) {
     //   recover devices that have droped.
     //
     async function connect(args = {}) {
-        if(equals(getStatus(), Status.connecting) ||
-           equals(getStatus(), Status.connected)) return;
+        // If already connecting, cancel the current connection attempt
+        if(equals(getStatus(), Status.connecting)) {
+            print.log(`ble: cancelling current connection attempt...`);
+            if (abortController) {
+                abortController.abort();
+            }
+            _status = Status.disconnected;
+            return;
+        }
+
+        if(equals(getStatus(), Status.connected)) return;
 
         const requesting = args.requesting ?? false;
         const watching = args.watching ?? false;
@@ -355,6 +364,11 @@ function Connectable(args = {}) {
                     ];
 
                     for (const serviceUuid of targetServices) {
+                        // Check if connection was cancelled
+                        if (abortController.signal.aborted) {
+                            throw new Error('Connection cancelled by user');
+                        }
+
                         try {
                             const service = await _server.getPrimaryService(serviceUuid);
                             _primaryServicesList.push(service);
