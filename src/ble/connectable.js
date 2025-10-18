@@ -123,6 +123,28 @@ async function getSpecificServices(server, uuidsObject) {
     return services;
 }
 
+// PWA detection utility
+function isPWA() {
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.navigator.standalone === true;
+}
+
+// Check Bluetooth permissions
+async function checkBluetoothPermission() {
+    if (!navigator.permissions) {
+        return true; // Assume granted if API not available
+    }
+
+    try {
+        const result = await navigator.permissions.query({ name: 'bluetooth' });
+        print.log(`ble: bluetooth permission: ${result.state}`);
+        return result.state === 'granted';
+    } catch(e) {
+        print.log('ble: permission check not supported, proceeding anyway');
+        return true;
+    }
+}
+
 function Connectable(args = {}) {
     const defaults = {
         name: 'Unknown',
@@ -358,8 +380,31 @@ function Connectable(args = {}) {
         if(equals(getStatus(), Status.connecting) ||
            equals(getStatus(), Status.connected)) return;
 
-        const requesting = args.requesting ?? false;
+        let requesting = args.requesting ?? false;
         const watching = args.watching ?? false;
+
+        // PWA-specific handling
+        const inPWA = isPWA();
+        if (inPWA) {
+            print.log('ble: running in PWA mode');
+
+            // Check permissions first in PWA
+            const hasPermission = await checkBluetoothPermission();
+            if (!hasPermission && requesting) {
+                print.log('ble: bluetooth permission not granted in PWA');
+                // Will be requested during requestDevice()
+            }
+
+            // If we have a cached device but we're in PWA, it might be stale
+            if (_device && !requesting && !watching) {
+                print.log('ble: PWA with cached device - may be stale, will fallback to requesting if needed');
+            }
+
+            // In PWA mode, prefer requesting over watching due to permission issues
+            if (watching && !requesting) {
+                print.log('ble: PWA mode - watching may not work reliably, will fallback to requesting');
+            }
+        }
 
         // guard
         // stop execution on missuse and notify the developer
@@ -439,6 +484,29 @@ function Connectable(args = {}) {
         } catch(e) {
             _connected = false;
             _status = Status.disconnected;
+
+            print.log(`ble: connection error: ${e.name}: ${e.message}`);
+            if (e.code) print.log(`ble: error code: ${e.code}`);
+
+            // PWA-specific recovery
+            if (inPWA && !requesting && !e.retryAttempted) {
+                print.log('ble: PWA connection failed with cached device, trying fresh device request');
+                e.retryAttempted = true;
+
+                // Wait before retry
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                try {
+                    // Try once more with requesting (fresh pairing)
+                    return await connect({requesting: true, watching: false});
+                } catch(retryError) {
+                    print.log(`ble: PWA fresh pairing also failed: ${retryError.message}`);
+                    onConnectFail(retryError);
+                    console.warn(retryError);
+                    return;
+                }
+            }
+
             onConnectFail(e);
             console.warn(e);
         }
@@ -594,6 +662,43 @@ function Connectable(args = {}) {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Request fresh device
+        await connect({requesting: true, watching: false});
+    }
+
+    // PWA-specific Bluetooth reset
+    async function resetBluetoothForPWA() {
+        if (!isPWA()) return;
+
+        print.log('ble: PWA - attempting Bluetooth reset');
+
+        try {
+            // Get all devices and try to forget them
+            const devices = await navigator.bluetooth.getDevices();
+            print.log(`ble: PWA - found ${devices.length} cached devices`);
+
+            for (const device of devices) {
+                if (device.forget) {
+                    try {
+                        await device.forget();
+                        print.log(`ble: PWA - forgot device: ${device.name}`);
+                    } catch(e) {
+                        print.log(`ble: PWA - couldn't forget ${device.name}: ${e.message}`);
+                    }
+                }
+            }
+        } catch(e) {
+            print.log(`ble: PWA - reset failed: ${e.message}`);
+        }
+    }
+
+    // Force fresh pairing in PWA mode
+    async function connectFreshInPWA() {
+        print.log('ble: PWA mode - requesting fresh device pairing');
+
+        // Clear any cached device reference
+        await forgetDevice();
+
+        // Force requesting mode
         await connect({requesting: true, watching: false});
     }
 
@@ -866,6 +971,11 @@ function Connectable(args = {}) {
         isDeviceGhost,
         clearAndReconnect,
         connectWithRetry,
+        // PWA-specific methods
+        isPWA,
+        resetBluetoothForPWA,
+        connectFreshInPWA,
+        checkBluetoothPermission,
     };
 }
 
