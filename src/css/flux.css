@@ -3689,3 +3689,74 @@ and (min-width: 1900px) {
 }
 /* END Media Queries */
 
+/* PIP (Picture-in-Picture) Controls */
+.pip-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pip-control--btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--color-chrome-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 40px;
+}
+
+.pip-control--btn:hover {
+    background: var(--color-hover-bg);
+    border-color: var(--color-primary);
+}
+
+.pip-control--btn.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+}
+
+.pip-control--icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.pip-control--label {
+    white-space: nowrap;
+}
+
+.pip-unsupported {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.pip-unsupported .pip-control--icon {
+    opacity: 0.5;
+}
+
+/* Mobile responsive */
+@media only screen and (max-width: 768px) {
+    .pip-control--btn {
+        padding: 6px 10px;
+        font-size: 0.8rem;
+        min-height: 36px;
+    }
+
+    .pip-control--icon {
+        width: 18px;
+        height: 18px;
+    }
+
+    .pip-control--label {
+        display: none;
+    }
+}
+
