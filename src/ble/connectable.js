@@ -342,14 +342,53 @@ function Connectable(args = {}) {
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
-            // Add timeout for service discovery to prevent hanging
-            const serviceDiscoveryTimeout = isAndroid ? 30000 : 10000; // Much longer timeout for Android
-            _primaryServicesList = await Promise.race([
-                _server.getPrimaryServices(),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
-                )
-            ]);
+            // Android-specific: Try alternative service discovery for problematic devices
+            if (isAndroid) {
+                print.log(`ble: android: attempting targeted service discovery...`);
+                try {
+                    // Try to get specific services one by one instead of all at once
+                    _primaryServicesList = [];
+                    const targetServices = [
+                        uuids.heartRate,
+                        uuids.battery,
+                        uuids.deviceInformation
+                    ];
+
+                    for (const serviceUuid of targetServices) {
+                        try {
+                            const service = await _server.getPrimaryService(serviceUuid);
+                            _primaryServicesList.push(service);
+                            print.log(`ble: android: found service: ${serviceUuid}`);
+                        } catch (e) {
+                            // Service not available, continue
+                            print.log(`ble: android: service not found: ${serviceUuid}`);
+                        }
+                    }
+
+                    if (_primaryServicesList.length === 0) {
+                        throw new Error('No supported services found');
+                    }
+                } catch (e) {
+                    print.log(`ble: android: targeted discovery failed, trying full discovery...`);
+                    // Fallback to full service discovery with longer timeout
+                    const serviceDiscoveryTimeout = 45000; // 45 seconds
+                    _primaryServicesList = await Promise.race([
+                        _server.getPrimaryServices(),
+                        new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
+                        )
+                    ]);
+                }
+            } else {
+                // Non-Android: use standard service discovery
+                const serviceDiscoveryTimeout = 10000;
+                _primaryServicesList = await Promise.race([
+                    _server.getPrimaryServices(),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Service discovery timeout')), serviceDiscoveryTimeout)
+                    )
+                ]);
+            }
 
             _primaryServices     = gattListToObject(_primaryServicesList);
             _connected           = true;
