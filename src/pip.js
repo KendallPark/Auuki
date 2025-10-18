@@ -348,7 +348,7 @@ class PIPManager {
                     <div class="data-tile" id="data-tile--interval-time">
                         <h2 class="data-tile--heading">Interval Time</h2>
                         <div class="data-tile--value-cont">
-                            <span id="pip-interval" class="data-tile--value">--:--</span>
+                            <span id="pip-interval" class="data-tile--value">${this.data.intervalTime}</span>
                         </div>
                     </div>
 
