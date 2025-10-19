@@ -218,12 +218,53 @@ class PIPManager {
         // Scale the context to match device pixel ratio for crisp text
         ctx.scale(devicePixelRatio, devicePixelRatio);
 
-        // Create a simple animation loop for the video
+        // Create a robust animation loop that works in background
+        let animationId;
         const animate = () => {
             // Pass logical dimensions, not physical canvas dimensions
             this.drawPIPContent(ctx, screenWidth, screenWidth / aspectRatio);
-            requestAnimationFrame(animate);
+
+            // Use both requestAnimationFrame and setTimeout for background compatibility
+            animationId = requestAnimationFrame(animate);
         };
+
+        // Also use setInterval as fallback for when app is backgrounded
+        const intervalId = setInterval(() => {
+            // Force update even when requestAnimationFrame is throttled
+            this.drawPIPContent(ctx, screenWidth, screenWidth / aspectRatio);
+        }, 1000); // Update every second when backgrounded
+
+        // Store references for cleanup
+        this.pipAnimationId = animationId;
+        this.pipIntervalId = intervalId;
+
+        // Handle visibility changes to boost updates when app is backgrounded
+        const handleVisibilityChange = () => {
+            if (document.hidden) {
+                // App is backgrounded - increase interval frequency for PIP updates
+                console.log('PIP: App backgrounded, increasing update frequency');
+                if (this.pipIntervalId) {
+                    clearInterval(this.pipIntervalId);
+                }
+                this.pipIntervalId = setInterval(() => {
+                    this.drawPIPContent(ctx, screenWidth, screenWidth / aspectRatio);
+                }, 500); // Update every 500ms when backgrounded
+            } else {
+                // App is foregrounded - return to normal interval
+                console.log('PIP: App foregrounded, returning to normal updates');
+                if (this.pipIntervalId) {
+                    clearInterval(this.pipIntervalId);
+                }
+                this.pipIntervalId = setInterval(() => {
+                    this.drawPIPContent(ctx, screenWidth, screenWidth / aspectRatio);
+                }, 1000); // Normal 1s interval when foregrounded
+            }
+        };
+
+        // Listen for visibility changes
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        this.pipVisibilityHandler = handleVisibilityChange;
+
         animate();
 
         // Capture canvas as video stream
@@ -452,6 +493,22 @@ class PIPManager {
         this.isPIPActive = false;
         this.pipWindow = null;
         this.pipDocument = null;
+
+        // Clean up animation loops
+        if (this.pipAnimationId) {
+            cancelAnimationFrame(this.pipAnimationId);
+            this.pipAnimationId = null;
+        }
+        if (this.pipIntervalId) {
+            clearInterval(this.pipIntervalId);
+            this.pipIntervalId = null;
+        }
+
+        // Clean up visibility change listener
+        if (this.pipVisibilityHandler) {
+            document.removeEventListener('visibilitychange', this.pipVisibilityHandler);
+            this.pipVisibilityHandler = null;
+        }
 
         // Clean up video element
         const video = document.getElementById('pip-video');
