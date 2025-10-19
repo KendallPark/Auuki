@@ -17,7 +17,9 @@ class PIPManager {
             speed: '--',
             elapsedTime: '--:--:--',
             distance: '--',
-            target: '--'
+            target: '--',
+            powerLap: '--',
+            intervalTime: '--:--'
         };
 
         if (this.isSupported) {
@@ -80,6 +82,30 @@ class PIPManager {
         xf.sub('db:powerTarget', (value) => {
             // PowerTarget: Math.round(state)
             this.data.target = value ? Math.round(value) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:powerLap', (value) => {
+            // PowerLap: Math.round(state)
+            this.data.powerLap = value ? Math.round(value) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:distance', (value) => {
+            // Distance: (state).toFixed(2)
+            this.data.distance = value ? value.toFixed(2) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:speed', (value) => {
+            // Speed: (state).toFixed(1)
+            this.data.speed = value ? value.toFixed(1) : '--';
+            this.updatePIPData();
+        });
+
+        xf.sub('db:lapTime', (value) => {
+            // IntervalTime: formatTime({value: this.state, format: this.format, unit: 'seconds'})
+            this.data.intervalTime = value ? formatTime({value: value, format: 'mm:ss', unit: 'seconds'}) : '--:--';
             this.updatePIPData();
         });
 
@@ -287,12 +313,12 @@ class PIPManager {
 
         const metrics = [
             { label: 'Power', value: this.data.power },
-            { label: 'Interval Time', value: '--:--' },
+            { label: 'Interval Time', value: this.data.intervalTime },
             { label: 'Heart Rate', value: this.data.heartRate },
             { label: 'Target', value: this.data.target },
             { label: 'Elapsed Time', value: this.data.elapsedTime },
             { label: 'Cadence', value: this.data.cadence },
-            { label: 'Power Lap', value: '--' },
+            { label: 'Power Lap', value: this.data.powerLap },
             { label: 'Speed', value: this.data.speed },
             { label: 'Distance', value: this.data.distance }
         ];
@@ -361,7 +387,7 @@ class PIPManager {
                     <div class="data-tile" id="data-tile--power">
                         <h2 class="data-tile--heading">Power</h2>
                         <div class="data-tile--value-cont">
-                            <span id="pip-power" class="data-tile--value">${this.data.power}</span>
+                            <span id="pip-power" class="data-tile--value">$${this.data.power}</span>
                         </div>
                     </div>
 
@@ -376,13 +402,6 @@ class PIPManager {
                         <h2 class="data-tile--heading">Cadence</h2>
                         <div class="data-tile--value-cont">
                             <span id="pip-cadence" class="data-tile--value">${this.data.cadence}</span>
-                        </div>
-                    </div>
-
-                    <div class="data-tile" id="data-tile--speed">
-                        <h2 class="data-tile--heading">Speed</h2>
-                        <div class="data-tile--value-cont">
-                            <span id="pip-speed" class="data-tile--value">${this.data.speed}</span>
                         </div>
                     </div>
 
@@ -403,7 +422,21 @@ class PIPManager {
                     <div class="data-tile" id="data-tile--target">
                         <h2 class="data-tile--heading">Target</h2>
                         <div class="data-tile--value-cont">
-                            <span id="pip-target" class="data-tile--value">${this.data.target}</span>
+                            <span id="pip-target" class="data-tile--value">-${this.data.target}-</span>
+                        </div>
+                    </div>
+
+                    <div class="data-tile" id="data-tile--power-avg">
+                        <h2 class="data-tile--heading">Power Lap</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-power-lap" class="data-tile--value">${this.data.powerLap}</span>
+                        </div>
+                    </div>
+
+                    <div class="data-tile" id="data-tile--speed">
+                        <h2 class="data-tile--heading">Speed</h2>
+                        <div class="data-tile--value-cont">
+                            <span id="pip-speed" class="data-tile--value">${this.data.speed}</span>
                         </div>
                     </div>
 
@@ -413,6 +446,7 @@ class PIPManager {
                             <span id="pip-distance" class="data-tile--value">${this.data.distance}</span>
                         </div>
                     </div>
+
 
                 </div> <!-- end data-tiles -->
             </div> <!-- end pip-container -->
@@ -452,12 +486,17 @@ class PIPManager {
     updatePIPData() {
         if (!this.isPIPActive) return;
 
+        console.log('PIP: Updating data', { intervalTime: this.data.intervalTime, pipDocument: !!this.pipDocument });
+
         // Update canvas-based PIP (fallback)
         // Canvas content is updated in drawPIPContent
 
         // Update Document PIP content (if available)
         if (this.pipDocument) {
+            console.log('PIP: Updating Document PIP content');
             this.updatePIPContent();
+        } else {
+            console.log('PIP: No pipDocument, using Video PIP (canvas)');
         }
     }
 
@@ -471,7 +510,9 @@ class PIPManager {
             speed: this.pipDocument.querySelector('#pip-speed'),
             time: this.pipDocument.querySelector('#pip-time'),
             target: this.pipDocument.querySelector('#pip-target'),
-            distance: this.pipDocument.querySelector('#pip-distance')
+            distance: this.pipDocument.querySelector('#pip-distance'),
+            powerLap: this.pipDocument.querySelector('#pip-power-lap'),
+            intervalTime: this.pipDocument.querySelector('#pip-interval')
         };
 
         if (elements.power) elements.power.textContent = this.data.power;
@@ -481,6 +522,12 @@ class PIPManager {
         if (elements.time) elements.time.textContent = this.data.elapsedTime;
         if (elements.target) elements.target.textContent = this.data.target;
         if (elements.distance) elements.distance.textContent = this.data.distance;
+        if (elements.powerLap) elements.powerLap.textContent = this.data.powerLap;
+        if (elements.intervalTime) {
+            elements.intervalTime.textContent = this.data.intervalTime;
+        } else {
+            console.log('PIP: Interval time element not found!');
+        }
     }
 
     onEnterPIP() {
