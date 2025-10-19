@@ -85,38 +85,26 @@ async function getPrimaryServicesWithRetry(server, maxRetries = 2) {
 }
 
 // Alternative: Get specific services instead of all services (for problematic devices)
-async function getSpecificServices(server, uuidsObject) {
+async function getSpecificServices(server, uuids) {
     print.log(`ble: attempting specific service discovery...`);
 
     const serviceUuids = [
-        uuidsObject.heartRate,
-        uuidsObject.battery,
-        uuidsObject.cyclingPower,
-        uuidsObject.speedCadence,
-        uuidsObject.fitnessMachine,
-        uuidsObject.fec,
-        uuidsObject.wahooFitnessMachine,
-        uuidsObject.raceController,
-        uuidsObject.smo2,
-        uuidsObject.coreTemp,
-        uuidsObject.deviceInformation,
-        // Add common Garmin/generic services
-        '0000180a-0000-1000-8000-00805f9b34fb', // Device Information
-        '0000180d-0000-1000-8000-00805f9b34fb', // Heart Rate Service (standard UUID)
-        '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
-        '00001801-0000-1000-8000-00805f9b34fb', // Generic Attribute
-    ].filter(uuid => uuid !== undefined);
-
-    print.log(`ble: searching for ${serviceUuids.length} service types...`);
+        uuids.heartRate,
+        uuids.battery,
+        uuids.cyclingPower,
+        uuids.speedCadence,
+        uuids.fitnessMachine,
+        uuids.deviceInformation
+    ];
 
     const servicePromises = serviceUuids.map(uuid =>
         server.getPrimaryService(uuid)
             .then(service => {
-                print.log(`ble: ✓ found service: ${uuid}`);
+                print.log(`ble: found service: ${uuid}`);
                 return service;
             })
-            .catch((err) => {
-                print.log(`ble: ✗ service not found: ${uuid}`);
+            .catch(() => {
+                print.log(`ble: service not found: ${uuid}`);
                 return null;
             })
     );
@@ -126,52 +114,6 @@ async function getSpecificServices(server, uuidsObject) {
 
     print.log(`ble: found ${services.length} specific services`);
     return services;
-}
-
-// Alternative discovery method for stubborn Garmin devices
-async function getAllServicesAlternative(server) {
-    print.log(`ble: trying alternative service discovery...`);
-
-    try {
-        // Try to get device info service first to "wake up" the device
-        try {
-            const deviceInfoService = await server.getPrimaryService('0000180a-0000-1000-8000-00805f9b34fb');
-            print.log('ble: device info service found, device is responding');
-        } catch(e) {
-            print.log('ble: no device info service, continuing...');
-        }
-
-        // Now try standard heart rate
-        const hrService = await server.getPrimaryService('0000180d-0000-1000-8000-00805f9b34fb');
-        print.log('ble: ✓ Heart rate service found!');
-        return [hrService];
-
-    } catch(e) {
-        print.log(`ble: alternative discovery failed: ${e.message}`);
-        return [];
-    }
-}
-
-// PWA detection utility
-function isPWA() {
-    return window.matchMedia('(display-mode: standalone)').matches ||
-           window.navigator.standalone === true;
-}
-
-// Check Bluetooth permissions
-async function checkBluetoothPermission() {
-    if (!navigator.permissions) {
-        return true; // Assume granted if API not available
-    }
-
-    try {
-        const result = await navigator.permissions.query({ name: 'bluetooth' });
-        print.log(`ble: bluetooth permission: ${result.state}`);
-        return result.state === 'granted';
-    } catch(e) {
-        print.log('ble: permission check not supported, proceeding anyway');
-        return true;
-    }
 }
 
 function Connectable(args = {}) {
@@ -409,31 +351,8 @@ function Connectable(args = {}) {
         if(equals(getStatus(), Status.connecting) ||
            equals(getStatus(), Status.connected)) return;
 
-        let requesting = args.requesting ?? false;
+        const requesting = args.requesting ?? false;
         const watching = args.watching ?? false;
-
-        // PWA-specific handling
-        const inPWA = isPWA();
-        if (inPWA) {
-            print.log('ble: running in PWA mode');
-
-            // Check permissions first in PWA
-            const hasPermission = await checkBluetoothPermission();
-            if (!hasPermission && requesting) {
-                print.log('ble: bluetooth permission not granted in PWA');
-                // Will be requested during requestDevice()
-            }
-
-            // If we have a cached device but we're in PWA, it might be stale
-            if (_device && !requesting && !watching) {
-                print.log('ble: PWA with cached device - may be stale, will fallback to requesting if needed');
-            }
-
-            // In PWA mode, prefer requesting over watching due to permission issues
-            if (watching && !requesting) {
-                print.log('ble: PWA mode - watching may not work reliably, will fallback to requesting');
-            }
-        }
 
         // guard
         // stop execution on missuse and notify the developer
@@ -470,51 +389,28 @@ function Connectable(args = {}) {
             _server = await _device.gatt.connect();
             print.log(`ble: gatt: connected: to: ${getName()} 'setting up ...'`);
 
-            // Android/Garmin-specific: Try multiple discovery methods
+            // Platform-specific service discovery with retry logic
             const isAndroid = /Android/i.test(navigator.userAgent);
-            let discoverySuccess = false;
-
-            // Method 1: Try standard getPrimaryServices with retry
-            if (isAndroid) {
-                try {
-                    print.log('ble: [Method 1] Trying getPrimaryServices with retry...');
+            try {
+                if (isAndroid) {
+                    // Try robust retry approach first on Android
                     _primaryServicesList = await getPrimaryServicesWithRetry(_server, 2);
-                    discoverySuccess = _primaryServicesList.length > 0;
-                    print.log(`ble: [Method 1] ${discoverySuccess ? 'SUCCESS' : 'FAILED'} - found ${_primaryServicesList.length} services`);
-                } catch (e) {
-                    print.log(`ble: [Method 1] Failed: ${e.message}`);
-                }
-            } else {
-                try {
+                } else {
+                    // Standard approach on other platforms
                     _primaryServicesList = await withTimeout(
                         _server.getPrimaryServices(),
                         5000,
                         'getPrimaryServices timeout'
                     );
-                    discoverySuccess = _primaryServicesList.length > 0;
-                } catch(e) {
-                    print.log(`ble: getPrimaryServices failed: ${e.message}`);
                 }
-            }
-
-            // Method 2: Try alternative discovery (device info first, then heart rate)
-            if (!discoverySuccess) {
-                print.log('ble: [Method 2] Trying alternative discovery...');
-                _primaryServicesList = await getAllServicesAlternative(_server);
-                discoverySuccess = _primaryServicesList.length > 0;
-                print.log(`ble: [Method 2] ${discoverySuccess ? 'SUCCESS' : 'FAILED'} - found ${_primaryServicesList.length} services`);
-            }
-
-            // Method 3: Try specific service discovery
-            if (!discoverySuccess) {
-                print.log('ble: [Method 3] Trying specific service discovery...');
+            } catch (e) {
+                // Fallback to specific service discovery if full discovery fails
+                print.log(`ble: full service discovery failed, trying specific services...`);
                 _primaryServicesList = await getSpecificServices(_server, uuids);
-                discoverySuccess = _primaryServicesList.length > 0;
-                print.log(`ble: [Method 3] ${discoverySuccess ? 'SUCCESS' : 'FAILED'} - found ${_primaryServicesList.length} services`);
-            }
 
-            if (!discoverySuccess || _primaryServicesList.length === 0) {
-                throw new Error('No supported services found on device. This device may not be compatible with Web Bluetooth.');
+                if (_primaryServicesList.length === 0) {
+                    throw new Error('No supported services found on device');
+                }
             }
 
             _primaryServices = gattListToObject(_primaryServicesList);
@@ -536,29 +432,6 @@ function Connectable(args = {}) {
         } catch(e) {
             _connected = false;
             _status = Status.disconnected;
-
-            print.log(`ble: connection error: ${e.name}: ${e.message}`);
-            if (e.code) print.log(`ble: error code: ${e.code}`);
-
-            // PWA-specific recovery
-            if (inPWA && !requesting && !e.retryAttempted) {
-                print.log('ble: PWA connection failed with cached device, trying fresh device request');
-                e.retryAttempted = true;
-
-                // Wait before retry
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                try {
-                    // Try once more with requesting (fresh pairing)
-                    return await connect({requesting: true, watching: false});
-                } catch(retryError) {
-                    print.log(`ble: PWA fresh pairing also failed: ${retryError.message}`);
-                    onConnectFail(retryError);
-                    console.warn(retryError);
-                    return;
-                }
-            }
-
             onConnectFail(e);
             console.warn(e);
         }
@@ -714,43 +587,6 @@ function Connectable(args = {}) {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Request fresh device
-        await connect({requesting: true, watching: false});
-    }
-
-    // PWA-specific Bluetooth reset
-    async function resetBluetoothForPWA() {
-        if (!isPWA()) return;
-
-        print.log('ble: PWA - attempting Bluetooth reset');
-
-        try {
-            // Get all devices and try to forget them
-            const devices = await navigator.bluetooth.getDevices();
-            print.log(`ble: PWA - found ${devices.length} cached devices`);
-
-            for (const device of devices) {
-                if (device.forget) {
-                    try {
-                        await device.forget();
-                        print.log(`ble: PWA - forgot device: ${device.name}`);
-                    } catch(e) {
-                        print.log(`ble: PWA - couldn't forget ${device.name}: ${e.message}`);
-                    }
-                }
-            }
-        } catch(e) {
-            print.log(`ble: PWA - reset failed: ${e.message}`);
-        }
-    }
-
-    // Force fresh pairing in PWA mode
-    async function connectFreshInPWA() {
-        print.log('ble: PWA mode - requesting fresh device pairing');
-
-        // Clear any cached device reference
-        await forgetDevice();
-
-        // Force requesting mode
         await connect({requesting: true, watching: false});
     }
 
@@ -1023,11 +859,6 @@ function Connectable(args = {}) {
         isDeviceGhost,
         clearAndReconnect,
         connectWithRetry,
-        // PWA-specific methods
-        isPWA,
-        resetBluetoothForPWA,
-        connectFreshInPWA,
-        checkBluetoothPermission,
     };
 }
 
