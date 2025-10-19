@@ -49,22 +49,22 @@ class BluetoothTroubleshooting extends HTMLElement {
     }
 
     async onResetHRM() {
-        if (confirm('This will remove all paired Heart Rate Monitors. You will need to pair them again. Continue?')) {
+        if (confirm('This will attempt to resolve Android PWA "ghost pairing" issues with Heart Rate Monitors. Continue?')) {
             try {
                 await clearBluetoothCacheForDevice(Device.heartRateMonitor);
 
                 // Dispatch notification
                 xf.dispatch('ui:notification', {
                     type: 'success',
-                    message: 'Heart Rate Monitor connections reset. Please re-pair your sensor.',
-                    duration: 5000
+                    message: 'HRM reset complete. If issues persist, try closing and reopening the app.',
+                    duration: 7000
                 });
             } catch (error) {
                 console.error('Failed to reset HRM:', error);
                 xf.dispatch('ui:notification', {
                     type: 'error',
-                    message: 'Failed to reset Heart Rate Monitor connections.',
-                    duration: 3000
+                    message: 'Reset failed. For persistent ghost pairing, restart Chrome or reboot phone.',
+                    duration: 5000
                 });
             }
         }
