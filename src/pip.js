@@ -10,6 +10,7 @@ class PIPManager {
         this.isSupported = this.checkPIPSupport();
         this.isPIPActive = false;
         this.pipWindow = null;
+        this.wakeLock = null;
         this.data = {
             power: '--',
             heartRate: '--',
@@ -530,9 +531,13 @@ class PIPManager {
         }
     }
 
-    onEnterPIP() {
+    async onEnterPIP() {
         this.isPIPActive = true;
         console.log('Entered PIP mode');
+
+        // Acquire wake lock to prevent phone from sleeping
+        await this.acquireWakeLock();
+
         xf.dispatch('pip:entered');
     }
 
@@ -557,6 +562,9 @@ class PIPManager {
             this.pipVisibilityHandler = null;
         }
 
+        // Release wake lock to allow phone to sleep again
+        this.releaseWakeLock();
+
         // Clean up video element
         const video = document.getElementById('pip-video');
         if (video) {
@@ -565,6 +573,34 @@ class PIPManager {
 
         console.log('Left PIP mode');
         xf.dispatch('pip:exited');
+    }
+
+    // Acquire wake lock to prevent screen from sleeping
+    async acquireWakeLock() {
+        try {
+            if ('wakeLock' in navigator) {
+                this.wakeLock = await navigator.wakeLock.request('screen');
+                console.log('PIP: Wake lock acquired - screen will stay on');
+
+                // Listen for wake lock release (when user switches tabs, etc.)
+                this.wakeLock.addEventListener('release', () => {
+                    console.log('PIP: Wake lock was released');
+                });
+            } else {
+                console.log('PIP: Wake Lock API not supported');
+            }
+        } catch (err) {
+            console.warn(`PIP: Failed to acquire wake lock: ${err.message}`);
+        }
+    }
+
+    // Release wake lock to allow screen to sleep
+    releaseWakeLock() {
+        if (this.wakeLock) {
+            this.wakeLock.release();
+            this.wakeLock = null;
+            console.log('PIP: Wake lock released - screen can sleep again');
+        }
     }
 
     toggle() {
