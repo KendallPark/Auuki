@@ -58,12 +58,12 @@ async function clearBluetoothCacheForDevice(deviceType = null) {
     });
     await Promise.all(forgetPromises);
 
-    // Step 3: Clear Web Bluetooth API cache (Android PWA specific)
-    console.log('Step 3: Attempting to clear Web Bluetooth API cache...');
+    // Step 3: Attempt to clear Chrome WebBluetooth cache (limited options)
+    console.log('Step 3: Attempting to clear Chrome WebBluetooth cache...');
     try {
         if ('bluetooth' in navigator && navigator.bluetooth.getDevices) {
             const devices = await navigator.bluetooth.getDevices();
-            console.log(`Found ${devices.length} cached Bluetooth devices`);
+            console.log(`Found ${devices.length} cached Bluetooth devices in Chrome`);
 
             for (const device of devices) {
                 try {
@@ -72,7 +72,7 @@ async function clearBluetoothCacheForDevice(deviceType = null) {
                         await device.gatt.disconnect();
                     }
 
-                    // Try to forget the device at browser level (if supported)
+                    // Try to forget the device at browser level (experimental)
                     if (device.forget && typeof device.forget === 'function') {
                         console.log(`Forgetting cached device: ${device.name || device.id}`);
                         await device.forget();
@@ -82,6 +82,54 @@ async function clearBluetoothCacheForDevice(deviceType = null) {
                 }
             }
         }
+
+        // Attempt to clear service worker caches (may help with some BLE state)
+        if ('caches' in window) {
+            const cacheNames = await caches.keys();
+            console.log(`Clearing ${cacheNames.length} service worker caches...`);
+            await Promise.all(cacheNames.map(name => caches.delete(name)));
+        }
+
+        // Try to clear IndexedDB (where Chrome might store BLE state)
+        if ('indexedDB' in window) {
+            try {
+                // This is a hack - Chrome sometimes stores BLE state in IndexedDB
+                const databases = await indexedDB.databases();
+                console.log(`Found ${databases.length} IndexedDB databases`);
+                for (const db of databases) {
+                    if (db.name && (db.name.includes('bluetooth') || db.name.includes('ble'))) {
+                        console.log(`Attempting to delete BLE-related database: ${db.name}`);
+                        indexedDB.deleteDatabase(db.name);
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not access IndexedDB databases:', error);
+            }
+        }
+
+        // Clear localStorage and sessionStorage (may contain BLE references)
+        try {
+            const localStorageKeys = Object.keys(localStorage);
+            const bleKeys = localStorageKeys.filter(key =>
+                key.toLowerCase().includes('bluetooth') ||
+                key.toLowerCase().includes('ble') ||
+                key.toLowerCase().includes('device')
+            );
+            console.log(`Clearing ${bleKeys.length} BLE-related localStorage entries`);
+            bleKeys.forEach(key => localStorage.removeItem(key));
+
+            const sessionStorageKeys = Object.keys(sessionStorage);
+            const sessionBleKeys = sessionStorageKeys.filter(key =>
+                key.toLowerCase().includes('bluetooth') ||
+                key.toLowerCase().includes('ble') ||
+                key.toLowerCase().includes('device')
+            );
+            console.log(`Clearing ${sessionBleKeys.length} BLE-related sessionStorage entries`);
+            sessionBleKeys.forEach(key => sessionStorage.removeItem(key));
+        } catch (error) {
+            console.warn('Could not clear storage:', error);
+        }
+
     } catch (error) {
         console.warn('Could not access bluetooth.getDevices():', error);
     }
