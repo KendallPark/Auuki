@@ -33,10 +33,12 @@ const coreTemp = ReactiveConnectable({
     filter: webBle.filters.coreTemp(),
 });
 
-// export {
-//     controllabe,
-//     heartRateMonitor,
-//     powerMeter,
-//     speedCadenceSensor,
-// };
+export {
+    controllable,
+    heartRateMonitor,
+    powerMeter,
+    speedCadenceSensor,
+    moxy,
+    coreTemp,
+};
 
